@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Express.js + GTM Demo</title>
+  <!-- Load Tatvic bundle -->
+  <script src="/dist/tatvic.js"></script>
+</head>
+<body>
+  <!-- The Simple Wrapper -->
+  <tatvic-wrapper>
+    <div style="font-family: sans-serif; padding: 2rem;">
+      <h1>Express.js + Node Stack</h1>
+      <p>GTM Container: <code>GTM-T32XGF8F</code></p>
+
+      <!-- User GTM Snippet -->
+      <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-T32XGF8F"></script>
+      <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+      </script>
+
+      <button id="node-btn" style="padding: 10px 20px; font-size: 15px;">Send Generate Lead Event</button>
+      <p id="msg" style="margin-top: 15px; color: blue; font-weight: bold;"></p>
+    </div>
+  </tatvic-wrapper>
+
+  <script>
+    document.getElementById('node-btn').addEventListener('click', function() {
+      gtag('event', 'generate_lead', { value: 99.99, currency: 'USD' });
+
+      fetch('https://tpozgxiu.usu.stape.io/g/collect?v=2&tid=G-TEST&en=generate_lead', {
+        method: 'POST',
+        body: 'en=generate_lead&value=99.99'
+      }).then(function(res) {
+        document.getElementById('msg').innerText = 'Relayed to sGTM (tpozgxiu.usu.stape.io) via Express middleware! Status: ' + res.status;
+      });
+    });
+  </script>
+</body>
+</html>

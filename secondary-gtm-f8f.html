@@ -1,0 +1,26 @@
+<!--
+================================================================================
+SECONDARY GTM CONTAINER INJECTOR (GTM-T32XGF8F)
+================================================================================
+INSTRUCTIONS:
+1. In your existing GTM container, go to: Tags -> New.
+2. Select Tag Type: "Custom HTML".
+3. Paste this exact code.
+4. Set Trigger to: "Initialization - All Pages" (or "All Pages").
+5. Save & Preview / Publish. Both containers will now run on the page!
+================================================================================
+-->
+<script>
+(function(w,d,s,l,i){
+  w[l]=w[l]||[];
+  w[l].push({'gtm.start': new Date().getTime(), event:'gtm.js'});
+  var f=d.getElementsByTagName(s)[0],
+      j=d.createElement(s),
+      dl=l!='dataLayer'?'&l='+l:'';
+  j.async=true;
+  var p = new URLSearchParams(window.location.search);
+  var dbg = p.get('gtm_debug') ? '&gtm_debug=' + p.get('gtm_debug') : '';
+  j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl+dbg;
+  f.parentNode.insertBefore(j,f);
+})(window, document, 'script', 'dataLayer', 'GTM-T32XGF8F');
+</script>

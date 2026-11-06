@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Plain HTML GTM Demo</title>
+  <!-- 1. Load Tatvic Standalone Bundle -->
+  <script src="/dist/tatvic.js"></script>
+</head>
+<body>
+  <!-- 2. The Simple Wrapper with Active sGTM Preview Header Token -->
+  <tatvic-wrapper server-preview="ZW52LTd8a2RuTVd2blg4aVJsUkR3cmdGcHBPUXwxYTFhZjFmYzliODBhNTAwN2NlMGU=">
+    <div id="app">
+      <h1>Plain HTML / Vanilla JS App</h1>
+      <p>GTM Container ID: <code>GTM-T32XGF8F</code></p>
+
+      <!-- First-Party Stealth GTM Loader (Bypasses uBlock Origin Lite, Brave Shields & EasyPrivacy) -->
+      <script async src="/_tatvic/loader.js?cid=GTM-T32XGF8F"></script>
+      <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-VVBCZC9JSW', {
+          debug_mode: true,
+          server_container_url: 'https://tpozgxiu.usu.stape.io',
+          transport_url: 'https://tpozgxiu.usu.stape.io'
+        });
+      </script>
+
+      <button id="track-btn" style="padding: 10px 20px; font-size: 16px;">Trigger Generate Lead Event</button>
+      <div id="status" style="margin-top: 15px; font-weight: bold;"></div>
+    </div>
+  </tatvic-wrapper>
+
+  <script>
+    function getCid() {
+      const match = document.cookie.match(/_ga=(?:GA1\.\d+\.)?([0-9]+\.[0-9]+)/);
+      return match ? match[1] : (Math.floor(Math.random() * 1e9) + '.' + Math.floor(Date.now() / 1000));
+    }
+    function getSid() {
+      const match = document.cookie.match(/_ga_VVBCZC9JSW=(?:GS1\.\d+\.)?([0-9]+)/);
+      return match ? match[1] : String(Math.floor(Date.now() / 1000));
+    }
+
+    document.getElementById('track-btn').addEventListener('click', function() {
+      const cid = getCid();
+      const sid = getSid();
+
+      // 1. Standard GTM dataLayer Custom Event
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push({
+        event: 'generate_lead',
+        value: 49.99,
+        currency: 'USD',
+        debug_mode: true
+      });
+
+      // 2. Gtag Event Call
+      gtag('event', 'generate_lead', {
+        value: 49.99,
+        currency: 'USD',
+        debug_mode: true
+      });
+
+      // 3. Fully structured GA4 collect hit with real Client ID & Session ID to Stape sGTM
+      const payload = 'v=2&tid=G-VVBCZC9JSW&cid=' + encodeURIComponent(cid) +
+        '&sid=' + encodeURIComponent(sid) +
+        '&sct=1&seg=1&en=generate_lead&_dbg=1&ep.debug_mode=true&ep.value=49.99&ep.currency=USD';
+
+      // Send via POST with query string parameters (without duplicate body) to avoid Stape 400 Bad Request
+      fetch('https://tpozgxiu.usu.stape.io/g/collect?' + payload, {
+        method: 'POST'
+      }).then(function(res) {
+        document.getElementById('status').innerText = 'Generate lead hit relayed to sGTM (tpozgxiu.usu.stape.io) with CID: ' + cid + '! Status: ' + res.status;
+      }).catch(function(err) {
+        document.getElementById('status').innerText = 'Error: ' + err.message;
+      });
+    });
+  </script>
+</body>
+</html>

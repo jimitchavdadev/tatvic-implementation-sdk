@@ -1,0 +1,28 @@
+{
+  "name": "tatvic-implementation-sdk",
+  "module": "index.ts",
+  "main": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "bun build src/bundle.ts --target=browser --format=iife --outfile=dist/tatvic.js --minify",
+    "test": "bun test",
+    "typecheck": "bun x tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "typescript": "^7"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}
