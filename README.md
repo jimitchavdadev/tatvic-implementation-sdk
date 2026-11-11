@@ -2,6 +2,9 @@
 
 A zero-configuration, universal wrapper that converts all third-party analytics and tracking requests into **first-party requests**, preventing client-side ad blockers (like Brave Shields, uBlock Origin, and AdGuard) from blocking them.
 
+> 📖 **Looking for a deep-dive, framework-agnostic developer guide?**  
+> See the [Comprehensive Framework-Agnostic Developer Integration Guide (Normal vs. Server-Side sGTM)](./docs/INTEGRATION_GUIDE.md).
+
 ---
 
 ## 🎯 The Problem Solved
