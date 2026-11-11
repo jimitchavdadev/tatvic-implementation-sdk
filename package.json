@@ -1,11 +1,39 @@
 {
   "name": "tatvic-implementation-sdk",
-  "module": "index.ts",
-  "main": "index.ts",
+  "version": "1.0.0",
+  "description": "Universal First-Party Analytics Proxy & Morphed GTM Loader SDK for Web, React, Next.js, and Node",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "type": "module",
-  "private": true,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./express": {
+      "types": "./dist/express.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
-    "build": "bun build src/bundle.ts --target=browser --format=iife --outfile=dist/tatvic.js --minify",
+    "build:bundle": "bun build src/bundle.ts --target=browser --format=iife --outfile=dist/tatvic.js --minify",
+    "build:esm": "bun build src/index.ts --target=browser --format=esm --outfile=dist/index.js --external react",
+    "build:types": "bun x tsc -p tsconfig.build.json",
+    "build": "bun run build:bundle && bun run build:esm && bun run build:types",
+    "prepublishOnly": "bun run test && bun run build",
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit"
   },
@@ -17,12 +45,27 @@
     "react-dom": "^19.3.1"
   },
   "peerDependencies": {
-    "react": ">=18.0.0",
-    "typescript": "^7"
+    "react": ">=18.0.0"
   },
   "peerDependenciesMeta": {
     "react": {
       "optional": true
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jimitchavdadev/tatvic-implementation-sdk.git"
+  },
+  "keywords": [
+    "gtm",
+    "sgtm",
+    "google-tag-manager",
+    "ad-blocker-bypass",
+    "first-party-data",
+    "ga4",
+    "server-side-tagging",
+    "analytics"
+  ],
+  "author": "Jimit Chavda <jimit@tatvic.com>",
+  "license": "MIT"
 }

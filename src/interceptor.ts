@@ -192,6 +192,7 @@ export class RequestInterceptor {
     const originalOpen = this.originalXhrOpen;
     const originalSend = this.originalXhrSend;
     const matcher = this.matcher;
+    const getPreviewToken = () => this.options.serverPreviewToken || this.detectPreviewToken();
 
     XMLHttpRequest.prototype.open = function (
       this: XMLHttpRequest,
@@ -206,7 +207,7 @@ export class RequestInterceptor {
       if (matcher.shouldProxy(targetUrl)) {
         matcher.log('Intercepted XHR:', targetUrl);
         const info = matcher.getProxiedRequestInfo(targetUrl);
-        const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
+        const previewToken = getPreviewToken();
 
         this.__tatvicMeta = {
           isProxied: true,
