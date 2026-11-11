@@ -1,5 +1,5 @@
 import React from 'react';
-import { TatvicWrapper } from '../../../src/index.js';
+import { TatvicWrapper } from '../../../src/react.js';
 
 export const metadata = {
   title: 'Next.js App Router GTM Demo',

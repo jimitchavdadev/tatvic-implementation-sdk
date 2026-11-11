@@ -8,7 +8,6 @@ export * from './interceptor.js';
 export * from './server-proxy.js';
 export * from './morph-gtm.js';
 export * from './custom-element.js';
-export * from './react.js';
 export * from './next.js';
 export * from './express.js';
 

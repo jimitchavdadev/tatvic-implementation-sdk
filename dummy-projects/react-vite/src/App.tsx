@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { TatvicWrapper } from '../../../src/index.js';
+import { TatvicWrapper } from '../../../src/react.js';
 
 declare global {
   interface Window {

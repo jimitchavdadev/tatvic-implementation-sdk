@@ -1,6 +1,6 @@
 {
   "name": "tatvic-implementation-sdk",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Universal First-Party Analytics Proxy & Morphed GTM Loader SDK for Web, React, Next.js, and Node",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -17,22 +17,23 @@
     },
     "./react": {
       "types": "./dist/react.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/react.js"
     },
     "./next": {
       "types": "./dist/next.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/next.js"
     },
     "./express": {
       "types": "./dist/express.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/express.js"
     }
   },
   "scripts": {
     "build:bundle": "bun build src/bundle.ts --target=browser --format=iife --outfile=dist/tatvic.js --minify",
-    "build:esm": "bun build src/index.ts --target=browser --format=esm --outfile=dist/index.js --external react",
+    "build:esm": "bun build src/index.ts --target=browser --format=esm --outfile=dist/index.js",
+    "build:subpaths": "bun build src/react.tsx --target=browser --format=esm --outfile=dist/react.js --external react && bun build src/next.ts --target=browser --format=esm --outfile=dist/next.js && bun build src/express.ts --target=browser --format=esm --outfile=dist/express.js",
     "build:types": "bun x tsc -p tsconfig.build.json",
-    "build": "bun run build:bundle && bun run build:esm && bun run build:types",
+    "build": "bun run build:bundle && bun run build:esm && bun run build:subpaths && bun run build:types",
     "prepublishOnly": "bun run test && bun run build",
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit"
