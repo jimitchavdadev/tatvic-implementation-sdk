@@ -455,6 +455,29 @@ When rendered inside a browser or headless runner:
 #### 3. Automatic Tag Assistant Preview & Debug Exemption
 When a developer actively tests their container via **Tag Assistant Preview Mode** (`gtm_debug=...`, `x-gtm-server-preview`, or `gtm_preview`), bot detection bypass is **automatically paused**, guaranteeing full debugging capability without manual configuration changes.
 
+### Console Observability & Diagnostics
+
+Whenever an automated bot or LLM agent is detected, the SDK immediately logs clear diagnostic output:
+
+1. **Browser DevTools Console (`console.warn`)**:
+   ```
+   [Tatvic SDK] 🤖 Bot detected: navigator.webdriver is true. Analytics scripts and tracking were neutralized to protect page speed.
+   [Tatvic SDK] 🤖 Bot detected: Chrome-Lighthouse. Request interceptor is muting outgoing analytics telemetry.
+   ```
+2. **Server / Proxy Logs (`console.info`)**:
+   ```
+   [Tatvic Proxy] 🤖 Bot/LLM Agent detected: AI Agent / LLM Crawler detected (GPTBot). Analytics request bypassed.
+   [Tatvic Proxy] 🤖 Bot/LLM Agent detected: Cloudflare bot score 12 <= 29. Analytics request bypassed.
+   ```
+3. **Custom Event Subscription**:
+   Developers can hook into bot detections for custom logging, security metrics, or Sentry tracking:
+   ```javascript
+   window.addEventListener('tatvic:bot-detected', (event) => {
+     console.log('Bot detected by Tatvic SDK:', event.detail);
+     // Output: { isBot: true, reason: 'navigator.webdriver is true', type: 'automated_browser' }
+   });
+   ```
+
 ### Configuration Options
 
 ```typescript

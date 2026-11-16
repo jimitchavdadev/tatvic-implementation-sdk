@@ -26,6 +26,7 @@ This SDK introduces a **Morphed First-Party GTM Loader** (`/_tatvic/gtm.js`):
    - Automatically detects AI crawlers (`GPTBot`, `ClaudeBot`, `PerplexityBot`, `Bytespider`), headless runners (`Lighthouse`, `Puppeteer`, `Playwright`), and Cloudflare Bot scores (`cf-bot-score <= 29`, `cf-verified-bot-category`).
    - For bots, tracking scripts return a minimal `200 OK` stub (~100 bytes) and telemetry hits return `204 No Content`.
    - Result: **0 KB of heavy tracking scripts executed for bots**, zero main-thread CPU time, drastically reduced Total Blocking Time (TBT), and pristine analytics.
+   - **Real-Time Console Logging**: Automatically logs `[Tatvic SDK] 🤖 Bot detected: <reason>` in DevTools and server logs, plus dispatches a `tatvic:bot-detected` DOM event.
 
 ---
 

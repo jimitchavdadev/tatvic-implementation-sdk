@@ -393,8 +393,9 @@ export function isClientBot(optionsConfig?: boolean | BotDetectionOptions): BotD
  * This satisfies script loading without downloading, parsing, or executing heavy tracking tags.
  */
 export function getBypassedScriptResponse(reason?: string): Response {
-  const comment = `/* [Tatvic SDK] Automated agent detected (${reason ?? 'bot'}). Analytics script loading bypassed to optimize page speed. */\n`;
-  return new Response(comment, {
+  const safeReason = (reason ?? 'Automated bot').replace(/[\r\n"']/g, ' ');
+  const code = `/* [Tatvic SDK] 🤖 Automated agent detected (${safeReason}). Analytics script loading bypassed to optimize page speed. */\nif (typeof console !== 'undefined' && console.warn) {\n  console.warn("[Tatvic SDK] 🤖 Bot detected: ${safeReason}. Tracking scripts bypassed to maximize page speed.");\n}\n`;
+  return new Response(code, {
     status: 200,
     headers: {
       'Content-Type': 'application/javascript; charset=UTF-8',

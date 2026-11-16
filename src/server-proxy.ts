@@ -34,6 +34,12 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       if (!isPreviewMode) {
         const botCheck = isServerBot(request, options.botDetection);
         if (botCheck.isBot) {
+          if (typeof console !== 'undefined' && console.info) {
+            console.info(
+              `[Tatvic Proxy] 🤖 Bot/LLM Agent detected: ${botCheck.reason}. Analytics request bypassed.`
+            );
+          }
+
           const pathname = reqUrl.pathname;
           const isScriptRequest =
             pathname.endsWith('.js') ||

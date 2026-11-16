@@ -51,8 +51,10 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
     if (botDetectionEnabled && !isPreview) {
       const botCheck = isClientBot();
       if (botCheck.isBot) {
-        if (debug || typeof console !== 'undefined') {
-          console.info(`[Tatvic SDK] Bot environment detected (${botCheck.reason}). Analytics script loading bypassed.`);
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(
+            `[Tatvic SDK] 🤖 Bot detected: ${botCheck.reason}. Analytics scripts and tracking were neutralized to protect page speed.`
+          );
         }
 
         // Suppress and deactivate any tracking scripts inside the wrapper

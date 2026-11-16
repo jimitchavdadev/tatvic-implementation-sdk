@@ -213,6 +213,13 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
   });
 
   it('should suppress outgoing fetch telemetry when bot is detected in RequestInterceptor', async () => {
+    let warnMsg = '';
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnMsg = args.join(' ');
+      originalWarn(...args);
+    };
+
     // Simulate automated browser environment
     Object.defineProperty(globalThis, 'navigator', {
       value: { ...originalNavigator, webdriver: true },
@@ -226,11 +233,15 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
     });
     interceptor.install();
 
+    expect(warnMsg).toContain('Bot detected');
+    expect(warnMsg).toContain('muting outgoing analytics telemetry');
+
     // Call fetch to targeted domain
     const res = await fetch('https://www.google-analytics.com/g/collect?v=2');
     expect(res.status).toBe(204);
     expect(res.headers.get('x-tatvic-bot-bypass')).toBe('true');
 
     interceptor.uninstall();
+    console.warn = originalWarn;
   });
 });

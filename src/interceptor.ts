@@ -53,6 +53,11 @@ export class RequestInterceptor {
       const botCheck = isClientBot(this.options.botDetection);
       if (botCheck.isBot) {
         this.isBotDetected = true;
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn(
+            `[Tatvic SDK] 🤖 Bot detected: ${botCheck.reason}. Request interceptor is muting outgoing analytics telemetry.`
+          );
+        }
         this.matcher.log(`Bot environment detected (${botCheck.reason}). Telemetry requests will be suppressed.`);
       }
     }
