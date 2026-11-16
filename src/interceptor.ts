@@ -1,8 +1,10 @@
 import type { ProxySdkOptions } from './types.js';
 import { UrlMatcher } from './url-matcher.js';
+import { isClientBot } from './bot-detector.js';
 
 interface TatvicXhrMetadata {
   isProxied?: boolean;
+  isBypassedBot?: boolean;
   originalUrl?: string;
   headerName?: string;
   headerValue?: string;
@@ -26,6 +28,7 @@ export class RequestInterceptor {
   private originalSendBeacon?: typeof navigator.sendBeacon;
   private originalScriptSrcDesc?: PropertyDescriptor;
   private originalImageSrcDesc?: PropertyDescriptor;
+  private isBotDetected: boolean = false;
 
   constructor(options: ProxySdkOptions = {}) {
     this.options = options;
@@ -43,6 +46,15 @@ export class RequestInterceptor {
     if (this.options.enabled === false) {
       this.matcher.log('SDK disabled via configuration.');
       return;
+    }
+
+    const isPreview = this.options.serverPreviewToken || this.detectPreviewToken();
+    if (!isPreview && this.options.botDetection !== false) {
+      const botCheck = isClientBot(this.options.botDetection);
+      if (botCheck.isBot) {
+        this.isBotDetected = true;
+        this.matcher.log(`Bot environment detected (${botCheck.reason}). Telemetry requests will be suppressed.`);
+      }
     }
 
     this.patchFetch();
@@ -105,6 +117,7 @@ export class RequestInterceptor {
     this.originalFetch = window.fetch.bind(window);
     const originalFetch = this.originalFetch;
     const matcher = this.matcher;
+    const isBot = () => this.isBotDetected;
 
     const patchedFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       let targetUrl: string;
@@ -121,6 +134,16 @@ export class RequestInterceptor {
 
       if (!matcher.shouldProxy(targetUrl)) {
         return originalFetch(input, init);
+      }
+
+      // If running inside an automated bot environment, suppress network fetch
+      if (isBot()) {
+        matcher.log('Suppressed fetch for automated bot:', targetUrl);
+        return new Response(null, {
+          status: 204,
+          statusText: 'No Content (Bot Bypassed)',
+          headers: { 'X-Tatvic-Bot-Bypass': 'true' },
+        });
       }
 
       matcher.log('Intercepted fetch:', targetUrl);
@@ -192,6 +215,7 @@ export class RequestInterceptor {
     const originalOpen = this.originalXhrOpen;
     const originalSend = this.originalXhrSend;
     const matcher = this.matcher;
+    const isBot = () => this.isBotDetected;
     const getPreviewToken = () => this.options.serverPreviewToken || this.detectPreviewToken();
 
     XMLHttpRequest.prototype.open = function (
@@ -205,6 +229,17 @@ export class RequestInterceptor {
       const targetUrl = url.toString();
 
       if (matcher.shouldProxy(targetUrl)) {
+        if (isBot()) {
+          matcher.log('Suppressed XHR for automated bot:', targetUrl);
+          this.__tatvicMeta = {
+            isProxied: false,
+            isBypassedBot: true,
+            originalUrl: targetUrl,
+          };
+          // Don't issue actual network call; assign dummy data URI
+          return originalOpen.call(this, method, 'data:application/json,{}', async, username, password);
+        }
+
         matcher.log('Intercepted XHR:', targetUrl);
         const info = matcher.getProxiedRequestInfo(targetUrl);
         const previewToken = getPreviewToken();
@@ -228,6 +263,19 @@ export class RequestInterceptor {
       this: XMLHttpRequest,
       body?: Document | XMLHttpRequestBodyInit | null
     ): void {
+      if (this.__tatvicMeta?.isBypassedBot) {
+        matcher.log('Bypassed XHR send for automated bot');
+        try {
+          Object.defineProperty(this, 'readyState', { value: 4, configurable: true });
+          Object.defineProperty(this, 'status', { value: 204, configurable: true });
+          Object.defineProperty(this, 'statusText', { value: 'No Content (Bot Bypassed)', configurable: true });
+          this.dispatchEvent(new Event('readystatechange'));
+          this.dispatchEvent(new Event('load'));
+          this.dispatchEvent(new Event('loadend'));
+        } catch {}
+        return;
+      }
+
       if (this.__tatvicMeta?.isProxied) {
         const { headerName, headerValue, previewToken } = this.__tatvicMeta;
         if (headerName && headerValue) {
@@ -258,6 +306,7 @@ export class RequestInterceptor {
     this.originalSendBeacon = navigator.sendBeacon.bind(navigator);
     const originalSendBeacon = this.originalSendBeacon;
     const matcher = this.matcher;
+    const isBot = () => this.isBotDetected;
     const polyfillWithKeepalive = this.options.polyfillBeaconWithKeepalive !== false;
 
     navigator.sendBeacon = (url: string | URL, data?: BodyInit | null): boolean => {
@@ -265,6 +314,11 @@ export class RequestInterceptor {
 
       if (!matcher.shouldProxy(targetUrl)) {
         return originalSendBeacon(url, data);
+      }
+
+      if (isBot()) {
+        matcher.log('Suppressed sendBeacon for automated bot:', targetUrl);
+        return true;
       }
 
       matcher.log('Intercepted sendBeacon:', targetUrl);
@@ -321,9 +375,22 @@ export class RequestInterceptor {
     const matcher = this.matcher;
     const originalSet = desc.set;
     const originalGet = desc.get;
+    const isBot = () => this.isBotDetected;
 
     Object.defineProperty(HTMLScriptElement.prototype, 'src', {
       set(this: HTMLScriptElement, val: string) {
+        if (isBot()) {
+          const isGtm =
+            typeof val === 'string' &&
+            (val.includes('googletagmanager.com') ||
+              val.includes('/_tatvic/gtm.js') ||
+              val.includes('/_tatvic/loader.js'));
+          if (isGtm || matcher.shouldProxy(val)) {
+            matcher.log('Suppressed dynamic script element for automated bot:', val);
+            return originalSet.call(this, 'data:text/javascript,/*[Tatvic] Bot bypassed*/');
+          }
+        }
+
         if (
           typeof val === 'string' &&
           (val.includes('googletagmanager.com/gtm.js') || val.includes('/_tatvic/gtm.js') || val.includes('/_tatvic/loader.js'))
@@ -393,9 +460,15 @@ export class RequestInterceptor {
     const matcher = this.matcher;
     const originalSet = desc.set;
     const originalGet = desc.get;
+    const isBot = () => this.isBotDetected;
 
     Object.defineProperty(HTMLImageElement.prototype, 'src', {
       set(this: HTMLImageElement, val: string) {
+        if (isBot() && matcher.shouldProxy(val)) {
+          matcher.log('Suppressed tracking pixel image for automated bot:', val);
+          return originalSet.call(this, 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
+        }
+
         if (matcher.shouldProxy(val)) {
           const info = matcher.getProxiedRequestInfo(val, 'query');
           matcher.log('Intercepted tracking pixel image:', val, '->', info.proxyUrl);

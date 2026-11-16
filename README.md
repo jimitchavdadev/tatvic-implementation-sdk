@@ -22,6 +22,10 @@ This SDK introduces a **Morphed First-Party GTM Loader** (`/_tatvic/gtm.js`):
    - Forwards them upstream so Google serves the workspace draft container.
    - Bypasses caching in debug mode (`Cache-Control: no-cache, no-store`).
    - Keeps `tagassistant.google.com` postMessage handshake intact so Tag Assistant connects instantly.
+4. **Bot & LLM Agent Detection (Core Web Vitals & Page Speed Booster):**
+   - Automatically detects AI crawlers (`GPTBot`, `ClaudeBot`, `PerplexityBot`, `Bytespider`), headless runners (`Lighthouse`, `Puppeteer`, `Playwright`), and Cloudflare Bot scores (`cf-bot-score <= 29`, `cf-verified-bot-category`).
+   - For bots, tracking scripts return a minimal `200 OK` stub (~100 bytes) and telemetry hits return `204 No Content`.
+   - Result: **0 KB of heavy tracking scripts executed for bots**, zero main-thread CPU time, drastically reduced Total Blocking Time (TBT), and pristine analytics.
 
 ---
 

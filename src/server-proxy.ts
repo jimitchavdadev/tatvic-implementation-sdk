@@ -1,6 +1,7 @@
 import type { ServerProxyOptions } from './types.js';
 import { DEFAULT_TARGET_DOMAINS, DEFAULT_HEADER_NAME, DEFAULT_PROXY_ENDPOINT } from './defaults.js';
 import { morphGtmScript } from './morph-gtm.js';
+import { isServerBot, getBypassedScriptResponse } from './bot-detector.js';
 
 /**
  * Creates a server-side proxy handler that receives proxied first-party requests
@@ -21,6 +22,41 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
   return async function handleProxyRequest(request: Request): Promise<Response> {
     try {
       const reqUrl = new URL(request.url);
+
+      // Check if this request is explicitly in Tag Assistant preview or debug mode
+      const isPreviewMode =
+        request.headers.has('x-gtm-server-preview') ||
+        reqUrl.searchParams.has('gtm_debug') ||
+        reqUrl.searchParams.has('_gtm_server_preview');
+
+      // Bot & LLM Agent Detection: If request is from an automated agent, crawler, or scraper,
+      // bypass tracking scripts to improve page speed and protect analytics data.
+      if (!isPreviewMode) {
+        const botCheck = isServerBot(request, options.botDetection);
+        if (botCheck.isBot) {
+          const pathname = reqUrl.pathname;
+          const isScriptRequest =
+            pathname.endsWith('.js') ||
+            pathname.endsWith('/loader') ||
+            pathname.includes('/_tatvic/loader') ||
+            pathname.includes('/_tatvic/gtm') ||
+            pathname.includes('/_tatvic/core');
+
+          if (isScriptRequest) {
+            return getBypassedScriptResponse(botCheck.reason);
+          }
+
+          // For telemetry / tracking beacon hits: Return 204 No Content without forwarding upstream
+          return new Response(null, {
+            status: 204,
+            headers: {
+              'X-Tatvic-Bot-Bypass': 'true',
+              'X-Tatvic-Bot-Reason': botCheck.reason ?? 'Automated bot traffic',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
+        }
+      }
 
       // 0. Handle Morphed GTM loader (/gtm.js, /loader.js, /core.js, etc.)
       const pathname = reqUrl.pathname;

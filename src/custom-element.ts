@@ -1,5 +1,6 @@
 import { initFirstPartyWrapper } from './index.js';
 import type { ProxySdkOptions } from './types.js';
+import { isClientBot } from './bot-detector.js';
 
 /**
  * Standard Web Component: <tatvic-wrapper>
@@ -24,11 +25,83 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
     const serverPreview = this.getAttribute
       ? (this.getAttribute('server-preview') || this.getAttribute('server-preview-token') || undefined)
       : undefined;
+    const botDetectionAttr = this.getAttribute ? this.getAttribute('bot-detection') : null;
+    const botDetectionEnabled = botDetectionAttr !== 'false';
 
     const options: ProxySdkOptions = {};
     if (endpoint) options.proxyEndpoint = endpoint;
     if (debug) options.debug = true;
     if (serverPreview) options.serverPreviewToken = serverPreview;
+    if (botDetectionAttr !== null) {
+      options.botDetection = botDetectionEnabled;
+    }
+
+    // Check if in Tag Assistant preview / debug mode
+    const isPreview =
+      Boolean(serverPreview) ||
+      (typeof window !== 'undefined' &&
+        window.location &&
+        (window.location.search.includes('gtm_debug') ||
+          window.location.search.includes('gtm_preview') ||
+          window.location.search.includes('gtm_server_preview')));
+
+    // Client-Side Bot & Automation Detection:
+    // If running in an automated / headless browser environment (e.g. Lighthouse, Puppeteer),
+    // cancel script injection/morphing to optimize Core Web Vitals and protect analytics.
+    if (botDetectionEnabled && !isPreview) {
+      const botCheck = isClientBot();
+      if (botCheck.isBot) {
+        if (debug || typeof console !== 'undefined') {
+          console.info(`[Tatvic SDK] Bot environment detected (${botCheck.reason}). Analytics script loading bypassed.`);
+        }
+
+        // Suppress and deactivate any tracking scripts inside the wrapper
+        const suppressScripts = () => {
+          try {
+            if (this.querySelectorAll && typeof document !== 'undefined') {
+              const scripts = this.querySelectorAll('script');
+              scripts.forEach((s) => {
+                const src = s.getAttribute('src') || '';
+                const text = s.textContent || '';
+                if (
+                  src.includes('googletagmanager.com') ||
+                  src.includes('google-analytics.com') ||
+                  src.includes('/_tatvic/loader') ||
+                  src.includes('/_tatvic/gtm') ||
+                  src.includes('/_tatvic/relay') ||
+                  text.includes('gtm.start') ||
+                  text.includes('google-analytics')
+                ) {
+                  s.setAttribute('type', 'text/plain');
+                  s.setAttribute('data-tatvic-bot-bypassed', botCheck.reason ?? 'bot');
+                  s.remove();
+                }
+              });
+            }
+          } catch {
+            // Ignore DOM query failures in non-standard environments
+          }
+        };
+
+        suppressScripts();
+        if (typeof queueMicrotask !== 'undefined') {
+          queueMicrotask(suppressScripts);
+        }
+
+        // Dispatch custom event for telemetry / developer observers
+        try {
+          window.dispatchEvent(
+            new CustomEvent('tatvic:bot-detected', {
+              detail: botCheck,
+              bubbles: true,
+              cancelable: false,
+            })
+          );
+        } catch {}
+
+        return; // Complete bypass: no proxy interceptor, no GTM scripts morphed
+      }
+    }
 
     initFirstPartyWrapper(options);
 

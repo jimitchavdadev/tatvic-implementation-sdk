@@ -1,7 +1,7 @@
 {
   "name": "tatvic-implementation-sdk",
-  "version": "1.0.2",
-  "description": "Universal First-Party Analytics Proxy & Morphed GTM Loader SDK for Web, React, Next.js, and Node",
+  "version": "1.1.0",
+  "description": "Universal First-Party Analytics Proxy & Morphed GTM Loader SDK with Bot/LLM Agent Detection for Web, React, Next.js, and Node",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -386,3 +386,105 @@ To confirm your integration is functioning correctly and successfully evading ad
 5. Open Tag Assistant sGTM Preview.            Incoming hit displays with event name & payload.
 6. Open GA4 Admin > DebugView.                 Event displays in realtime event stream.
 ```
+
+---
+
+## 7. Bot & LLM Agent Detection: Page Speed & Analytics Protection
+
+A major performance problem on modern websites is that **LLM crawlers, AI scraping agents, and automated test runners** aggressively crawl pages:
+- **LLM Scrapers & AI Crawlers**: `GPTBot`, `ChatGPT-User`, `ClaudeBot`, `PerplexityBot`, `Bytespider`, `CCBot`, `Google-Extended`, `Meta-ExternalAgent`, `Amazonbot`.
+- **Automated Browsers & Audit Tools**: Google Lighthouse, Chrome DevTools audit runners, `HeadlessChrome`, Puppeteer, Playwright, Selenium.
+- **CLI & Script Scrapers**: `curl`, `Wget`, `python-requests`, `Scrapy`, `aiohttp`.
+
+When these automated clients visit a website, executing heavy marketing containers (GTM, GA4, Meta Pixel, Hotjar, TikTok) causes:
+1. **Severe Page Speed & Core Web Vitals Degradation**: Downloading hundreds of kilobytes of third-party JavaScript and running tag evaluations inflates Total Blocking Time (TBT) and delays First Contentful Paint (FCP).
+2. **Analytics & Conversion Skewing**: Non-human sessions pollute conversion rates, bounce rates, and traffic sources.
+3. **Unnecessary Cloud Infrastructure Costs**: Forwarding bot telemetry runs up cloud execution costs on sGTM (Stape, Google Cloud Run, AWS).
+
+### Two-Tier Bot Detection Architecture
+
+```
+                                  [Incoming Request]
+                                          │
+                  ┌───────────────────────┴───────────────────────┐
+                  ▼                                               ▼
+          [SERVER / PROXY TIER]                           [CLIENT BROWSER TIER]
+                  │                                               │
+      Cloudflare & Header Analysis:                   Browser Runtime Heuristics:
+      • cf.bot_management.score <= 29                • navigator.webdriver === true
+      • cf.verified_bot_category == 'AI Crawler'      • window.__playwright__binding__
+      • User-Agent: GPTBot, ClaudeBot, etc.           • window.__puppeteer_evaluation_script__
+      • Scrapers: curl, python-requests               • User-Agent: Chrome-Lighthouse
+                  │                                               │
+                  ├───────────────────────────────┐               ├───────────────────────────────┐
+                  ▼                               ▼               ▼                               ▼
+            [Is Human]                        [Is Bot]       [Is Human]                       [Is Bot]
+                  │                               │               │                               │
+            Serve Morphed                   Bypass Action:  Normal Execution            Bypass Action:
+            Container Script                • Script requests:                           • <tatvic-wrapper> strips
+            & Relay Telemetry                 Return 200 OK                                child <script> elements
+                                              empty JS stub                                • Mutes fetch/beacon calls
+                                            • Relay telemetry:                             • Dispatches window event:
+                                              Return 204 No                                  'tatvic:bot-detected'
+                                              Content                                      • Drops TBT to ~0ms
+```
+
+### Detection Mechanisms
+
+#### 1. Server-Side Edge & Cloudflare Header Evaluation
+When running behind Cloudflare (or similar CDNs like Akamai/AWS WAF), the SDK inspects:
+- **`cf-bot-score` / `x-bot-score` (1–99)**: Cloudflare Bot Management scores below `30` represent automated bot traffic (with `1` being a definite bot). Default threshold: `29`.
+- **`cf-verified-bot-category` / `x-verified-bot-category`**: Verified categories including `'AI Crawler'`, `'AI Assistant'`, `'AI Search'`, and `'Scraper'`. Traditional search engines (`'Search Engine Crawler'` like Googlebot) remain permitted for SEO indexing by default.
+- **User-Agent Fingerprinting**: Robust regular expression matching against over 35 known LLM scrapers and headless browser clients.
+
+**Bypass Behavior on Server**:
+- **Loader Endpoint (`/_tatvic/loader.js` or `/gtm.js`)**: Returns `200 OK` with a clean, lightweight JS comment stub (~100 bytes) with `Cache-Control: public, max-age=86400` and `X-Tatvic-Bot-Bypass: true`. No upstream Google Tag Manager request is made, saving 100% of container bandwidth and execution time.
+- **Relay Endpoint (`/_tatvic/relay`)**: Returns `204 No Content` with `X-Tatvic-Bot-Bypass: true` without proxying to upstream analytics or sGTM.
+
+#### 2. Client-Side Synthetic Environment Evaluation
+When rendered inside a browser or headless runner:
+- Inspects `navigator.webdriver === true`.
+- Inspects known automation keys on `window`: `__playwright__binding__`, `__puppeteer_evaluation_script__`, `_Selenium_IDE_Recorder`, `__webdriver_evaluate`, `domAutomationController`.
+- Inspects `navigator.userAgent` for `Chrome-Lighthouse`, `Lighthouse`, and `HeadlessChrome`.
+
+**Bypass Behavior on Client**:
+- `<tatvic-wrapper>` immediately neutralizes any child tracking scripts by setting `type="text/plain"` and removing them from the DOM before execution.
+- Dispatches a standard `CustomEvent('tatvic:bot-detected', { detail: { isBot: true, reason: '...', type: '...' } })` on `window`.
+- `RequestInterceptor` mutes all outgoing `fetch`, `XMLHttpRequest`, and `navigator.sendBeacon` tracking calls, returning instant `204 No Content` responses without network activity.
+
+#### 3. Automatic Tag Assistant Preview & Debug Exemption
+When a developer actively tests their container via **Tag Assistant Preview Mode** (`gtm_debug=...`, `x-gtm-server-preview`, or `gtm_preview`), bot detection bypass is **automatically paused**, guaranteeing full debugging capability without manual configuration changes.
+
+### Configuration Options
+
+```typescript
+import { createProxyHandler, initFirstPartyWrapper } from 'tatvic-implementation-sdk';
+
+// Server-Side Configuration
+const handler = createProxyHandler({
+  serverContainerUrl: 'https://tpozgxiu.usu.stape.io',
+  botDetection: {
+    enabled: true,                  // Default: true
+    blockAiAgents: true,            // Block GPTBot, ClaudeBot, Bytespider, etc.
+    blockAutomatedBrowsers: true,   // Block Lighthouse, Puppeteer, Playwright
+    blockHttpScrapers: true,        // Block curl, python-requests, Scrapy
+    blockSearchCrawlers: false,     // Allow Googlebot & Bingbot for SEO
+    botScoreThreshold: 29,          // Cloudflare score threshold (<= 29 is bot)
+    allowlistPatterns: ['MyInternalMonitor'], // Custom whitelist
+  },
+});
+
+// Client-Side Configuration
+initFirstPartyWrapper({
+  proxyEndpoint: '/_tatvic/relay',
+  botDetection: true,               // Default: true
+});
+```
+
+Or via HTML Web Component attribute:
+```html
+<tatvic-wrapper bot-detection="true">
+  <script async src="/_tatvic/loader.js?cid=GTM-T32XGF8F"></script>
+</tatvic-wrapper>
+```
+

@@ -64,6 +64,14 @@ export interface ProxySdkOptions {
   serverPreviewToken?: string;
 
   /**
+   * Bot & LLM Agent Detection options.
+   * When enabled, prevents tracking scripts from executing in automated/headless browsers
+   * (e.g. Lighthouse, Puppeteer) to boost Core Web Vitals and protect analytics.
+   * Default: true
+   */
+  botDetection?: boolean | BotDetectionOptions;
+
+  /**
    * Whether the interceptor is enabled.
    * Default: true
    */
@@ -78,6 +86,17 @@ export interface ServerProxyOptions {
    * Server-Side GTM Preview token to forward upstream if not provided by client.
    */
   serverPreviewToken?: string;
+
+  /**
+   * Bot and LLM Agent Detection configuration.
+   * When enabled, automated bots, AI crawlers, and scrapers are detected using Cloudflare
+   * Bot Management headers (cf-bot-score, cf-verified-bot-category) and User-Agent patterns.
+   * When a bot is detected, tracking loaders (/loader.js, /gtm.js) return a blank 0KB script,
+   * saving server/client CPU and bandwidth and boosting Lighthouse scores, while telemetry
+   * hits return 204 No Content without polluting analytics.
+   * Default: true
+   */
+  botDetection?: boolean | BotDetectionOptions;
 
   /**
    * Optional Server-Side GTM container URL (e.g. "https://tpozgxiu.usu.stape.io").
@@ -115,4 +134,94 @@ export interface ServerProxyOptions {
    * Default: ['host', 'cookie', 'authorization', 'connection']
    */
   stripHeaders?: string[];
+}
+
+/**
+ * Options for configuring Bot & LLM Agent Detection.
+ */
+export interface BotDetectionOptions {
+  /**
+   * Whether bot detection is enabled.
+   * Default: true
+   */
+  enabled?: boolean;
+
+  /**
+   * Whether to block AI agents and LLM crawlers (GPTBot, ClaudeBot, PerplexityBot, Bytespider, CCBot, etc.).
+   * Default: true
+   */
+  blockAiAgents?: boolean;
+
+  /**
+   * Whether to block automated browser test tools and headless runners (Puppeteer, Playwright, Selenium, Lighthouse).
+   * Default: true
+   */
+  blockAutomatedBrowsers?: boolean;
+
+  /**
+   * Whether to block HTTP scraping tools and libraries (curl, Wget, python-requests, Scrapy, httpx, etc.).
+   * Default: true
+   */
+  blockHttpScrapers?: boolean;
+
+  /**
+   * Whether to block traditional search engine crawlers (Googlebot, Bingbot, etc.).
+   * Default: false (allows search engine indexing while blocking AI training scrapers)
+   */
+  blockSearchCrawlers?: boolean;
+
+  /**
+   * Cloudflare Bot Management score threshold (1-99).
+   * Any score below or equal to this threshold is treated as automated bot traffic.
+   * Cloudflare guidelines: 1 = definite bot, 2-29 = likely automated, 30-99 = likely human.
+   * Default: 29
+   */
+  botScoreThreshold?: number;
+
+  /**
+   * Custom user-agent patterns (strings or RegExp) to treat as bots.
+   */
+  customBotPatterns?: (string | RegExp)[];
+
+  /**
+   * Custom user-agent patterns (strings or RegExp) to explicitly allow/whitelist (never treat as bot).
+   */
+  allowlistPatterns?: (string | RegExp)[];
+}
+
+/**
+ * Result returned by bot detection analysis.
+ */
+export interface BotDetectionResult {
+  /**
+   * Whether the request or environment was identified as a bot.
+   */
+  isBot: boolean;
+
+  /**
+   * Detailed explanation of why the request was classified as a bot.
+   */
+  reason?: string;
+
+  /**
+   * Bot category classification.
+   */
+  type?:
+    | 'cf_score'
+    | 'cf_verified'
+    | 'ai_agent'
+    | 'automated_browser'
+    | 'http_scraper'
+    | 'search_crawler'
+    | 'custom_rule';
+
+  /**
+   * Cloudflare bot score if available (1-99).
+   */
+  score?: number;
+
+  /**
+   * Cloudflare verified bot category if available.
+   */
+  category?: string;
 }
