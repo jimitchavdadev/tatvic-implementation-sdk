@@ -44,6 +44,14 @@ export interface ProxySdkOptions {
   routingMode?: 'header' | 'query' | 'auto';
 
   /**
+   * Whether to preserve original query parameters on the first-party proxy URL in header routing mode.
+   * When enabled, requests to /_tatvic/relay include ?v=2&tid=G-XXXXX, allowing Chrome DevTools
+   * "Payload" tab to parse and display query string parameters natively just like normal collect hits.
+   * Default: false
+   */
+  preserveQueryOnProxyUrl?: boolean;
+
+  /**
    * If true, converts navigator.sendBeacon calls to fetch with { keepalive: true }.
    * This allows custom headers and more reliable delivery.
    * Default: true

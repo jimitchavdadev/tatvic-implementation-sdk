@@ -85,6 +85,21 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         targetUrlStr = reqUrl.searchParams.get('_tgt');
       }
 
+      // Transparent Direct Routing:
+      // If request hits /_tatvic/g/collect or /_tatvic/collect, or carries standard GA4 parameters (?v=2&tid=...),
+      // automatically route directly to serverContainerUrl or upstream google-analytics.com!
+      if (!targetUrlStr) {
+        if (
+          reqUrl.pathname.includes('/g/collect') ||
+          reqUrl.pathname.includes('/collect') ||
+          (reqUrl.searchParams.has('v') && reqUrl.searchParams.has('tid'))
+        ) {
+          const upstreamBase = options.serverContainerUrl || 'https://www.google-analytics.com';
+          const subpath = reqUrl.pathname.replace(/^\/_tatvic/, '') || '/g/collect';
+          targetUrlStr = `${upstreamBase}${subpath}${reqUrl.search}`;
+        }
+      }
+
       if (!targetUrlStr) {
         return new Response(JSON.stringify({ error: 'Missing target destination' }), {
           status: 400,
@@ -116,6 +131,15 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         return new Response(JSON.stringify({ error: 'Malformed target URL' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Merge any query parameters from incoming request if not already present on targetUrl
+      if (reqUrl.search) {
+        reqUrl.searchParams.forEach((val, key) => {
+          if (key !== '_tgt' && !targetUrl.searchParams.has(key)) {
+            targetUrl.searchParams.set(key, val);
+          }
         });
       }
 

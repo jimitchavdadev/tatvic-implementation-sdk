@@ -13,6 +13,7 @@ export class UrlMatcher {
   private targetHeaderName: string;
   private obfuscateTarget: boolean;
   private routingMode: 'header' | 'query' | 'auto';
+  private preserveQueryOnProxyUrl: boolean;
   private debug: boolean;
 
   constructor(options: ProxySdkOptions = {}) {
@@ -22,6 +23,7 @@ export class UrlMatcher {
     this.targetHeaderName = (options.targetHeaderName ?? DEFAULT_HEADER_NAME).toLowerCase();
     this.obfuscateTarget = options.obfuscateTarget ?? false;
     this.routingMode = options.routingMode ?? 'auto';
+    this.preserveQueryOnProxyUrl = options.preserveQueryOnProxyUrl ?? false;
     this.debug = options.debug ?? false;
   }
 
@@ -91,8 +93,19 @@ export class UrlMatcher {
       return { proxyUrl };
     }
 
+    // In header mode: preserve original query parameters on proxyUrl if enabled,
+    // so Chrome DevTools' "Payload" tab parses and displays query string parameters natively just like normal collect hits
+    let proxyUrl = this.proxyEndpoint;
+    if (this.preserveQueryOnProxyUrl) {
+      const parsedTarget = this.parseUrl(originalUrl);
+      if (parsedTarget && parsedTarget.search) {
+        const sep = proxyUrl.includes('?') ? '&' : '?';
+        proxyUrl = `${proxyUrl}${sep}${parsedTarget.search.slice(1)}`;
+      }
+    }
+
     return {
-      proxyUrl: this.proxyEndpoint,
+      proxyUrl,
       headerName: this.targetHeaderName,
       headerValue: encodedTarget,
     };
