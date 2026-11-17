@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { UrlMatcher } from '../src/url-matcher.js';
 import { RequestInterceptor } from '../src/interceptor.js';
 import { createProxyHandler } from '../src/server-proxy.js';
+import { morphGtmScript } from '../src/morph-gtm.js';
 
 describe('UrlMatcher', () => {
   it('should identify default target tracking domains', () => {
@@ -52,6 +53,24 @@ describe('UrlMatcher', () => {
     const info = matcher.getProxiedRequestInfo('https://www.google-analytics.com/g/collect');
     expect(info.proxyUrl).toContain('/api/v1/gateway?_tgt=');
     expect(info.proxyUrl).toContain(encodeURIComponent('https://www.google-analytics.com/g/collect'));
+  });
+
+  it('should preserve query parameters on proxyUrl when preserveQueryOnProxyUrl is true', () => {
+    const matcher = new UrlMatcher({
+      proxyEndpoint: '/_tatvic/relay',
+      routingMode: 'query',
+      preserveQueryOnProxyUrl: true,
+    });
+    const targetUrl = 'https://www.google-analytics.com/g/collect?v=2&tid=G-VVBCZC9JSW&cid=123';
+    const info = matcher.getProxiedRequestInfo(targetUrl);
+    // Direct collect hit format: DevTools parses all params natively
+    expect(info.proxyUrl).toBe('/_tatvic/g/collect?v=2&tid=G-VVBCZC9JSW&cid=123');
+
+    // Generic tracking endpoint with query routing
+    const genericTarget = 'https://analytics.tiktok.com/api/v2/pixel?event=ViewContent&pixel_id=999';
+    const genericInfo = matcher.getProxiedRequestInfo(genericTarget);
+    expect(genericInfo.proxyUrl).toContain('/_tatvic/relay?event=ViewContent&pixel_id=999&_tgt=');
+    expect(genericInfo.proxyUrl).toContain(encodeURIComponent('https://analytics.tiktok.com/api/v2/pixel'));
   });
 });
 
@@ -251,5 +270,30 @@ describe('RequestInterceptor in Browser Context', () => {
     expect(script.src).toBe('/_tatvic/loader.js?cid=GTM-T32XGF8F');
 
     interceptor.uninstall();
+  });
+});
+
+describe('morphGtmScript', () => {
+  it('should morph GTM dynamic Google Analytics constructors to first-party endpoints', () => {
+    const rawSnippet = `
+      function Qk(a){a=a===void 0?"g/collect":a;return"https://"+(Ok()||"www")+".google-analytics.com/"+a}
+      function Rk(a){a=a===void 0?"g/collect":a;var b=Ok();return"https://"+(b?b+".":"")+"analytics.google.com/"+a}
+      f="https://{ga4CollectionSubdomain.}google-analytics.com/g/s/collect".replace("{ga4CollectionSubdomain.}",(b||"www")+".");
+      var x="https://adservice.google.com/adsid/google/ui";
+    `;
+
+    const morphed = morphGtmScript(rawSnippet, '/_tatvic/relay');
+
+    expect(morphed).not.toContain('.google-analytics.com');
+    expect(morphed).not.toContain('analytics.google.com');
+    expect(morphed).toContain('return"/_tatvic/"+a');
+    expect(morphed).toContain('f="/_tatvic/g/s/collect"');
+    expect(morphed).toContain('/_tatvic/relay?_tgt=https%3A%2F%2Fadservice.google.com%2F');
+  });
+
+  it('should strictly preserve tagassistant.google.com for Tag Assistant debugging', () => {
+    const snippet = `window.open("https://tagassistant.google.com/?id=GTM-123");`;
+    const morphed = morphGtmScript(snippet, '/_tatvic/relay');
+    expect(morphed).toContain('https://tagassistant.google.com/?id=GTM-123');
   });
 });

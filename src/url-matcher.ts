@@ -88,6 +88,27 @@ export class UrlMatcher {
     const encodedTarget = this.encodeTarget(originalUrl);
 
     if (mode === 'query') {
+      if (this.preserveQueryOnProxyUrl) {
+        const parsedTarget = this.parseUrl(originalUrl);
+        if (parsedTarget && parsedTarget.search) {
+          // If this is a GA4/sGTM collect endpoint, route directly to first-party /g/collect
+          // so DevTools displays it identically to a normal collect hit.
+          if (parsedTarget.pathname.endsWith('/g/collect') || parsedTarget.pathname.endsWith('/collect')) {
+            const collectBase = this.proxyEndpoint.replace(/\/[^\/]+$/, '') || '/_tatvic';
+            const subpath = parsedTarget.pathname.includes('/g/collect') ? '/g/collect' : '/collect';
+            const proxyUrl = `${collectBase}${subpath}${parsedTarget.search}`;
+            return { proxyUrl };
+          }
+
+          // Otherwise preserve query params as top-level params and attach target base
+          const baseTarget = `${parsedTarget.origin}${parsedTarget.pathname}`;
+          const encodedBaseTarget = this.encodeTarget(baseTarget);
+          const sep = this.proxyEndpoint.includes('?') ? '&' : '?';
+          const proxyUrl = `${this.proxyEndpoint}${sep}${parsedTarget.search.slice(1)}&_tgt=${encodeURIComponent(encodedBaseTarget)}`;
+          return { proxyUrl };
+        }
+      }
+
       const separator = this.proxyEndpoint.includes('?') ? '&' : '?';
       const proxyUrl = `${this.proxyEndpoint}${separator}_tgt=${encodeURIComponent(encodedTarget)}`;
       return { proxyUrl };
@@ -99,8 +120,14 @@ export class UrlMatcher {
     if (this.preserveQueryOnProxyUrl) {
       const parsedTarget = this.parseUrl(originalUrl);
       if (parsedTarget && parsedTarget.search) {
-        const sep = proxyUrl.includes('?') ? '&' : '?';
-        proxyUrl = `${proxyUrl}${sep}${parsedTarget.search.slice(1)}`;
+        if (parsedTarget.pathname.endsWith('/g/collect') || parsedTarget.pathname.endsWith('/collect')) {
+          const collectBase = this.proxyEndpoint.replace(/\/[^\/]+$/, '') || '/_tatvic';
+          const subpath = parsedTarget.pathname.includes('/g/collect') ? '/g/collect' : '/collect';
+          proxyUrl = `${collectBase}${subpath}${parsedTarget.search}`;
+        } else {
+          const sep = proxyUrl.includes('?') ? '&' : '?';
+          proxyUrl = `${proxyUrl}${sep}${parsedTarget.search.slice(1)}`;
+        }
       }
     }
 

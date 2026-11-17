@@ -95,7 +95,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
           (reqUrl.searchParams.has('v') && reqUrl.searchParams.has('tid'))
         ) {
           const upstreamBase = options.serverContainerUrl || 'https://www.google-analytics.com';
-          const subpath = reqUrl.pathname.replace(/^\/_tatvic/, '') || '/g/collect';
+          const subpath = reqUrl.pathname.includes('/g/collect')
+            ? '/g/collect'
+            : reqUrl.pathname.includes('/collect')
+              ? '/collect'
+              : '/g/collect';
           targetUrlStr = `${upstreamBase}${subpath}${reqUrl.search}`;
         }
       }
