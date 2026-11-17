@@ -86,27 +86,38 @@ export class UrlMatcher {
   } {
     const mode = forcedMode ?? (this.routingMode === 'auto' ? 'header' : this.routingMode);
     const encodedTarget = this.encodeTarget(originalUrl);
+    const parsedTarget = this.parseUrl(originalUrl);
+
+    // Detect GA4 / sGTM collection hits
+    const isGa4Collect =
+      parsedTarget &&
+      (parsedTarget.pathname.endsWith('/g/collect') ||
+        parsedTarget.pathname.endsWith('/collect') ||
+        (parsedTarget.searchParams.has('v') && parsedTarget.searchParams.has('tid')));
+
+    // When preserveQueryOnProxyUrl is true and this is a GA4/sGTM collect request,
+    // route directly through proxyEndpoint with query params (?v=2&tid=...)
+    // so Chrome DevTools parses all params natively in the Payload tab while strictly
+    // avoiding '/g/collect' which gets blocked by Brave Shields and ad blockers.
+    if (this.preserveQueryOnProxyUrl && isGa4Collect) {
+      const search = parsedTarget && parsedTarget.search ? parsedTarget.search.slice(1) : '';
+      const sep = this.proxyEndpoint.includes('?') ? '&' : '?';
+      const proxyUrl = search ? `${this.proxyEndpoint}${sep}${search}` : this.proxyEndpoint;
+      return {
+        proxyUrl,
+        headerName: this.targetHeaderName,
+        headerValue: encodedTarget,
+      };
+    }
 
     if (mode === 'query') {
-      if (this.preserveQueryOnProxyUrl) {
-        const parsedTarget = this.parseUrl(originalUrl);
-        if (parsedTarget && parsedTarget.search) {
-          // If this is a GA4/sGTM collect endpoint, route directly to first-party /g/collect
-          // so DevTools displays it identically to a normal collect hit.
-          if (parsedTarget.pathname.endsWith('/g/collect') || parsedTarget.pathname.endsWith('/collect')) {
-            const collectBase = this.proxyEndpoint.replace(/\/[^\/]+$/, '') || '/_tatvic';
-            const subpath = parsedTarget.pathname.includes('/g/collect') ? '/g/collect' : '/collect';
-            const proxyUrl = `${collectBase}${subpath}${parsedTarget.search}`;
-            return { proxyUrl };
-          }
-
-          // Otherwise preserve query params as top-level params and attach target base
-          const baseTarget = `${parsedTarget.origin}${parsedTarget.pathname}`;
-          const encodedBaseTarget = this.encodeTarget(baseTarget);
-          const sep = this.proxyEndpoint.includes('?') ? '&' : '?';
-          const proxyUrl = `${this.proxyEndpoint}${sep}${parsedTarget.search.slice(1)}&_tgt=${encodeURIComponent(encodedBaseTarget)}`;
-          return { proxyUrl };
-        }
+      if (this.preserveQueryOnProxyUrl && parsedTarget && parsedTarget.search) {
+        // Otherwise preserve query params as top-level params and attach target base
+        const baseTarget = `${parsedTarget.origin}${parsedTarget.pathname}`;
+        const encodedBaseTarget = this.encodeTarget(baseTarget);
+        const sep = this.proxyEndpoint.includes('?') ? '&' : '?';
+        const proxyUrl = `${this.proxyEndpoint}${sep}${parsedTarget.search.slice(1)}&_tgt=${encodeURIComponent(encodedBaseTarget)}`;
+        return { proxyUrl };
       }
 
       const separator = this.proxyEndpoint.includes('?') ? '&' : '?';
@@ -117,18 +128,9 @@ export class UrlMatcher {
     // In header mode: preserve original query parameters on proxyUrl if enabled,
     // so Chrome DevTools' "Payload" tab parses and displays query string parameters natively just like normal collect hits
     let proxyUrl = this.proxyEndpoint;
-    if (this.preserveQueryOnProxyUrl) {
-      const parsedTarget = this.parseUrl(originalUrl);
-      if (parsedTarget && parsedTarget.search) {
-        if (parsedTarget.pathname.endsWith('/g/collect') || parsedTarget.pathname.endsWith('/collect')) {
-          const collectBase = this.proxyEndpoint.replace(/\/[^\/]+$/, '') || '/_tatvic';
-          const subpath = parsedTarget.pathname.includes('/g/collect') ? '/g/collect' : '/collect';
-          proxyUrl = `${collectBase}${subpath}${parsedTarget.search}`;
-        } else {
-          const sep = proxyUrl.includes('?') ? '&' : '?';
-          proxyUrl = `${proxyUrl}${sep}${parsedTarget.search.slice(1)}`;
-        }
-      }
+    if (this.preserveQueryOnProxyUrl && parsedTarget && parsedTarget.search) {
+      const sep = proxyUrl.includes('?') ? '&' : '?';
+      proxyUrl = `${proxyUrl}${sep}${parsedTarget.search.slice(1)}`;
     }
 
     return {

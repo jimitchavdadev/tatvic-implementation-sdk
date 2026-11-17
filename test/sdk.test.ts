@@ -63,8 +63,8 @@ describe('UrlMatcher', () => {
     });
     const targetUrl = 'https://www.google-analytics.com/g/collect?v=2&tid=G-VVBCZC9JSW&cid=123';
     const info = matcher.getProxiedRequestInfo(targetUrl);
-    // Direct collect hit format: DevTools parses all params natively
-    expect(info.proxyUrl).toBe('/_tatvic/g/collect?v=2&tid=G-VVBCZC9JSW&cid=123');
+    // Strictly routes through /_tatvic/relay without '/g/collect' so ad blockers do not block it
+    expect(info.proxyUrl).toBe('/_tatvic/relay?v=2&tid=G-VVBCZC9JSW&cid=123');
 
     // Generic tracking endpoint with query routing
     const genericTarget = 'https://analytics.tiktok.com/api/v2/pixel?event=ViewContent&pixel_id=999';
@@ -286,8 +286,8 @@ describe('morphGtmScript', () => {
 
     expect(morphed).not.toContain('.google-analytics.com');
     expect(morphed).not.toContain('analytics.google.com');
-    expect(morphed).toContain('return"/_tatvic/"+a');
-    expect(morphed).toContain('f="/_tatvic/g/s/collect"');
+    expect(morphed).toContain('return"/_tatvic/relay"');
+    expect(morphed).toContain('f="/_tatvic/relay"');
     expect(morphed).toContain('/_tatvic/relay?_tgt=https%3A%2F%2Fadservice.google.com%2F');
   });
 

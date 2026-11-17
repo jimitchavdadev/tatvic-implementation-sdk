@@ -29,6 +29,8 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
     const botDetectionEnabled = botDetectionAttr !== 'false';
     const preserveQueryAttr = this.getAttribute ? this.getAttribute('preserve-query') : null;
     const preserveQuery = preserveQueryAttr !== 'false';
+    const obfuscateAttr = this.getAttribute ? this.getAttribute('obfuscate-target') : null;
+    const obfuscateTarget = obfuscateAttr !== 'false';
 
     const options: ProxySdkOptions = {};
     if (endpoint) options.proxyEndpoint = endpoint;
@@ -38,6 +40,7 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
       options.botDetection = botDetectionEnabled;
     }
     options.preserveQueryOnProxyUrl = preserveQuery;
+    options.obfuscateTarget = obfuscateTarget;
 
     // Check if in Tag Assistant preview / debug mode
     const isPreview =

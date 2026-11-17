@@ -111,19 +111,23 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         });
       }
 
-      // 2. Decode target URL if obfuscated
-      if (options.obfuscateTarget) {
+      // 2. Decode target URL if obfuscated (or auto-decode Base64 targets)
+      if (options.obfuscateTarget || (targetUrlStr && !targetUrlStr.startsWith('http://') && !targetUrlStr.startsWith('https://'))) {
         try {
-          if (typeof atob !== 'undefined') {
-            targetUrlStr = atob(targetUrlStr);
-          } else {
-            targetUrlStr = Buffer.from(targetUrlStr, 'base64').toString('utf-8');
+          const decoded =
+            typeof atob !== 'undefined'
+              ? atob(targetUrlStr)
+              : Buffer.from(targetUrlStr, 'base64').toString('utf-8');
+          if (decoded.startsWith('http://') || decoded.startsWith('https://')) {
+            targetUrlStr = decoded;
           }
         } catch {
-          return new Response(JSON.stringify({ error: 'Invalid obfuscated target' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' },
-          });
+          if (options.obfuscateTarget) {
+            return new Response(JSON.stringify({ error: 'Invalid obfuscated target' }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            });
+          }
         }
       }
 

@@ -25,6 +25,10 @@ export const DEFAULT_TARGET_DOMAINS: (string | RegExp)[] = [
   'a.run.app',
   'appspot.com',
 
+  // Consent & Cookie Management Platforms (CMP)
+  'cookiebot.com',
+  'consent.cookiebot.com',
+
   // Meta / Facebook Pixel & CAPI
   'connect.facebook.net',
   'facebook.com',
