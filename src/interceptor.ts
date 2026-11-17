@@ -1,6 +1,7 @@
 import type { ProxySdkOptions } from './types.js';
 import { UrlMatcher } from './url-matcher.js';
 import { isClientBot } from './bot-detector.js';
+import { PiiRedactor } from './pii-redactor.js';
 
 interface TatvicXhrMetadata {
   isProxied?: boolean;
@@ -19,6 +20,7 @@ declare global {
 
 export class RequestInterceptor {
   private matcher: UrlMatcher;
+  private piiRedactor: PiiRedactor;
   private options: ProxySdkOptions;
   private isInstalled: boolean = false;
 
@@ -33,6 +35,7 @@ export class RequestInterceptor {
   constructor(options: ProxySdkOptions = {}) {
     this.options = options;
     this.matcher = new UrlMatcher(options);
+    this.piiRedactor = new PiiRedactor(options.piiRedaction);
   }
 
   /**
@@ -154,6 +157,10 @@ export class RequestInterceptor {
       matcher.log('Intercepted fetch:', targetUrl);
       const isNoCors = init?.mode === 'no-cors' || (typeof Request !== 'undefined' && input instanceof Request && input.mode === 'no-cors');
       const info = matcher.getProxiedRequestInfo(targetUrl, isNoCors ? 'query' : undefined);
+      let proxyUrl = info.proxyUrl;
+      if (this.piiRedactor.isEnabled()) {
+        proxyUrl = this.piiRedactor.redactUrl(proxyUrl);
+      }
       const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
 
       // Handle Request object input vs (url, init)
@@ -169,7 +176,7 @@ export class RequestInterceptor {
           headers.set('x-gtm-server-preview', previewToken);
         }
 
-        const proxiedRequest = new Request(info.proxyUrl, {
+        const proxiedRequest = new Request(proxyUrl, {
           method: init?.method ?? input.method,
           headers,
           body: init?.body ?? input.body,
@@ -195,13 +202,20 @@ export class RequestInterceptor {
         headers.set('x-gtm-server-preview', previewToken);
       }
 
+      let reqBody = init?.body;
+      if (typeof reqBody === 'string' && this.piiRedactor.isEnabled()) {
+        const cType = headers.get('content-type') || '';
+        reqBody = this.piiRedactor.redactBody(reqBody, cType);
+      }
+
       const modifiedInit: RequestInit = {
         ...init,
+        body: reqBody,
         headers,
         mode: isNoCors ? 'cors' : (init?.mode ?? 'cors'),
       };
 
-      return originalFetch(info.proxyUrl, modifiedInit);
+      return originalFetch(proxyUrl, modifiedInit);
     };
 
     // Preserve any static properties on fetch (e.g. Bun preconnect)
@@ -220,6 +234,7 @@ export class RequestInterceptor {
     const originalOpen = this.originalXhrOpen;
     const originalSend = this.originalXhrSend;
     const matcher = this.matcher;
+    const piiRedactor = this.piiRedactor;
     const isBot = () => this.isBotDetected;
     const getPreviewToken = () => this.options.serverPreviewToken || this.detectPreviewToken();
 
@@ -247,6 +262,10 @@ export class RequestInterceptor {
 
         matcher.log('Intercepted XHR:', targetUrl);
         const info = matcher.getProxiedRequestInfo(targetUrl);
+        let proxyUrl = info.proxyUrl;
+        if (piiRedactor.isEnabled()) {
+          proxyUrl = piiRedactor.redactUrl(proxyUrl);
+        }
         const previewToken = getPreviewToken();
 
         this.__tatvicMeta = {
@@ -257,7 +276,7 @@ export class RequestInterceptor {
           previewToken,
         };
 
-        return originalOpen.call(this, method, info.proxyUrl, async, username, password);
+        return originalOpen.call(this, method, proxyUrl, async, username, password);
       }
 
       this.__tatvicMeta = { isProxied: false };
@@ -298,7 +317,12 @@ export class RequestInterceptor {
           }
         }
       }
-      return originalSend.call(this, body);
+
+      let sendBody = body;
+      if (typeof sendBody === 'string' && piiRedactor.isEnabled()) {
+        sendBody = piiRedactor.redactBody(sendBody);
+      }
+      return originalSend.call(this, sendBody);
     };
   }
 
@@ -328,9 +352,18 @@ export class RequestInterceptor {
 
       matcher.log('Intercepted sendBeacon:', targetUrl);
 
+      let beaconData = data;
+      if (typeof beaconData === 'string' && this.piiRedactor.isEnabled()) {
+        beaconData = this.piiRedactor.redactBody(beaconData);
+      }
+
       // Preferred: fetch with keepalive: true (supports custom proxy headers)
       if (polyfillWithKeepalive && typeof window.fetch === 'function') {
         const info = matcher.getProxiedRequestInfo(targetUrl);
+        let proxyUrl = info.proxyUrl;
+        if (this.piiRedactor.isEnabled()) {
+          proxyUrl = this.piiRedactor.redactUrl(proxyUrl);
+        }
         const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
         const headers = new Headers();
         if (info.headerName && info.headerValue) {
@@ -341,9 +374,9 @@ export class RequestInterceptor {
         }
 
         try {
-          window.fetch(info.proxyUrl, {
+          window.fetch(proxyUrl, {
             method: 'POST',
-            body: data,
+            body: beaconData,
             headers,
             keepalive: true,
             mode: 'cors',
@@ -359,11 +392,14 @@ export class RequestInterceptor {
       // Fallback: sendBeacon with target in query parameter
       const queryInfo = matcher.getProxiedRequestInfo(targetUrl, 'query');
       let fallbackUrl = queryInfo.proxyUrl;
+      if (this.piiRedactor.isEnabled()) {
+        fallbackUrl = this.piiRedactor.redactUrl(fallbackUrl);
+      }
       const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
       if (previewToken) {
         fallbackUrl += (fallbackUrl.includes('?') ? '&' : '?') + '_gtm_server_preview=' + encodeURIComponent(previewToken);
       }
-      return originalSendBeacon(fallbackUrl, data);
+      return originalSendBeacon(fallbackUrl, beaconData);
     };
   }
 

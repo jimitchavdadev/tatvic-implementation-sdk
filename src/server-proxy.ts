@@ -2,6 +2,7 @@ import type { ServerProxyOptions } from './types.js';
 import { DEFAULT_TARGET_DOMAINS, DEFAULT_HEADER_NAME, DEFAULT_PROXY_ENDPOINT } from './defaults.js';
 import { morphGtmScript } from './morph-gtm.js';
 import { isServerBot, getBypassedScriptResponse } from './bot-detector.js';
+import { PiiRedactor } from './pii-redactor.js';
 
 /**
  * Creates a server-side proxy handler that receives proxied first-party requests
@@ -13,6 +14,7 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
   const allowedDomains = options.allowedDomains ?? DEFAULT_TARGET_DOMAINS;
   const timeoutMs = options.timeoutMs ?? 10000;
   const relayEndpoint = DEFAULT_PROXY_ENDPOINT;
+  const piiRedactor = new PiiRedactor(options.piiRedaction);
   const stripHeaders = new Set(
     (options.stripHeaders ?? ['host', 'authorization', 'connection']).map((h) =>
       h.toLowerCase()
@@ -151,6 +153,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         });
       }
 
+      // PII Redaction: Replace email and phone values with "NA" in query parameters
+      if (piiRedactor.isEnabled()) {
+        piiRedactor.redactSearchParams(targetUrl.searchParams);
+      }
+
       // Only allow HTTP/HTTPS
       if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
         return new Response(JSON.stringify({ error: 'Unsupported protocol' }), {
@@ -223,7 +230,18 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-      const body = hasBody ? await request.arrayBuffer() : undefined;
+      let body: BodyInit | undefined = undefined;
+
+      if (hasBody) {
+        if (piiRedactor.isEnabled()) {
+          const contentType = request.headers.get('content-type') || '';
+          const rawText = await request.text();
+          body = piiRedactor.redactBody(rawText, contentType);
+          upstreamHeaders.delete('content-length');
+        } else {
+          body = await request.arrayBuffer();
+        }
+      }
 
       const upstreamResponse = await fetch(targetUrl.toString(), {
         method: request.method,

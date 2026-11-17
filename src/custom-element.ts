@@ -27,6 +27,8 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
       : undefined;
     const botDetectionAttr = this.getAttribute ? this.getAttribute('bot-detection') : null;
     const botDetectionEnabled = botDetectionAttr !== 'false';
+    const piiRedactionAttr = this.getAttribute ? this.getAttribute('pii-redaction') : null;
+    const piiRedactionEnabled = piiRedactionAttr !== 'false';
     const preserveQueryAttr = this.getAttribute ? this.getAttribute('preserve-query') : null;
     const preserveQuery = preserveQueryAttr !== 'false';
     const obfuscateAttr = this.getAttribute ? this.getAttribute('obfuscate-target') : null;
@@ -38,6 +40,9 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
     if (serverPreview) options.serverPreviewToken = serverPreview;
     if (botDetectionAttr !== null) {
       options.botDetection = botDetectionEnabled;
+    }
+    if (piiRedactionAttr !== null) {
+      options.piiRedaction = piiRedactionEnabled;
     }
     options.preserveQueryOnProxyUrl = preserveQuery;
     options.obfuscateTarget = obfuscateTarget;

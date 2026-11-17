@@ -80,6 +80,14 @@ export interface ProxySdkOptions {
   botDetection?: boolean | BotDetectionOptions;
 
   /**
+   * PII (Personally Identifiable Information) Redaction options.
+   * When enabled, any request parameter containing an email or phone number
+   * has its value replaced with "NA" to protect user privacy and prevent GA4 TOS violations.
+   * Default: true
+   */
+  piiRedaction?: boolean | PiiRedactionOptions;
+
+  /**
    * Whether the interceptor is enabled.
    * Default: true
    */
@@ -105,6 +113,15 @@ export interface ServerProxyOptions {
    * Default: true
    */
   botDetection?: boolean | BotDetectionOptions;
+
+  /**
+   * PII (Personally Identifiable Information) Redaction configuration.
+   * When enabled, any parameter in incoming requests (query params or request body)
+   * containing an email address or phone number has its value replaced with "NA"
+   * before forwarding upstream.
+   * Default: true
+   */
+  piiRedaction?: boolean | PiiRedactionOptions;
 
   /**
    * Optional Server-Side GTM container URL (e.g. "https://tpozgxiu.usu.stape.io").
@@ -232,4 +249,33 @@ export interface BotDetectionResult {
    * Cloudflare verified bot category if available.
    */
   category?: string;
+}
+
+/**
+ * Options for configuring automatic PII (Personally Identifiable Information) Redaction.
+ * When enabled, parameters in the request containing email addresses or phone numbers
+ * have their value replaced with "NA" for that specific parameter only.
+ */
+export interface PiiRedactionOptions {
+  /**
+   * Whether PII redaction is enabled.
+   * Default: true
+   */
+  enabled?: boolean;
+
+  /**
+   * Replacement string for parameters containing PII.
+   * Default: "NA"
+   */
+  replacement?: string;
+
+  /**
+   * Custom regex to detect email addresses (optional override).
+   */
+  emailRegex?: RegExp;
+
+  /**
+   * Custom regex to detect phone numbers (optional override).
+   */
+  phoneRegex?: RegExp;
 }

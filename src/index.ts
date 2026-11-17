@@ -8,6 +8,7 @@ export * from './interceptor.js';
 export * from './server-proxy.js';
 export * from './morph-gtm.js';
 export * from './bot-detector.js';
+export * from './pii-redactor.js';
 export * from './custom-element.js';
 export * from './next.js';
 export * from './express.js';

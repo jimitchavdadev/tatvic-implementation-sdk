@@ -511,3 +511,61 @@ Or via HTML Web Component attribute:
 </tatvic-wrapper>
 ```
 
+---
+
+## 8. Automatic PII (Personally Identifiable Information) Redaction
+
+Google Analytics 4 and privacy regulations (GDPR, CCPA) strictly prohibit sending Personally Identifiable Information (PII) such as email addresses and phone numbers. Accidental inclusion of user emails or phone numbers in event parameters can lead to GA4 account suspension and legal liabilities.
+
+The Tatvic SDK includes an **Automatic PII Redaction Engine** operating on both client-side and server-side layers.
+
+### Mechanism & Rules
+1. **Email Detection Regex**:
+   - Matches standard email addresses and URL-encoded emails (`@` or `%40`).
+   - Uses negative lookahead `\.(?!png\b|jpg\b|jpeg\b|svg\b|webp\b|gif\b)` to guarantee that image asset URLs (e.g. `banner@2x.png`, `avatar@3x.jpg`) are never accidentally redacted.
+   ```regex
+   \b[A-Za-z0-9](?:[A-Za-z0-9._%+-]{0,63})[A-Za-z0-9](?:@|%40)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?){0,8}\.(?!png\b|jpg\b|jpeg\b|svg\b|webp\b|gif\b)[A-Za-z]{2,24}\b
+   ```
+2. **Phone Number Detection Regex**:
+   - Matches keys associated with phone or mobile numbers (`phone`, `mobile`, `mobile_no`, `phone_number`, `ep.phone`, `user_mobile`, etc.) accompanied by 10-digit numbers (`\d{10}`).
+   - Leaves non-phone 10-digit values (timestamps, session IDs `sid=1794835583`, transaction IDs) untouched.
+   ```regex
+   \b(?:mobile|mobileno|mobilenumber|mobile_number|phone|phone_number|mobile_no|phone_no)\b\s*[:=]\s*['"]?\d{10}['"]?
+   ```
+3. **Selective Redaction Strategy**:
+   - If a parameter contains email or phone PII, **only that specific parameter's value is replaced with `"NA"`** (or a custom replacement string).
+   - All other clean parameters (event names, revenue, transaction IDs, currency, engagement times) remain intact.
+   - The sanitized request is then passed through safely to upstream analytics.
+   - Supported across:
+     - URL query parameters (`?ep.user_email=john@example.com` -> `?ep.user_email=NA`)
+     - GA4 multiline collect payloads (`en=page_view&ep.email=test@example.com\nen=click` -> `en=page_view&ep.email=NA\nen=click`)
+     - JSON request bodies (`{ "user": { "email": "test@example.com" } }` -> `{ "user": { "email": "NA" } }`)
+
+### Configuration Examples
+
+```typescript
+import { createProxyHandler, initFirstPartyWrapper } from 'tatvic-implementation-sdk';
+
+// Server-Side Proxy Configuration (Enabled by default)
+const relay = createProxyHandler({
+  serverContainerUrl: 'https://tpozgxiu.usu.stape.io',
+  piiRedaction: {
+    enabled: true,           // Default: true
+    replacement: 'NA',       // Default: 'NA'
+  },
+});
+
+// Client-Side Interceptor Configuration
+initFirstPartyWrapper({
+  piiRedaction: true,        // Default: true
+});
+```
+
+Or via `<tatvic-wrapper>` HTML element:
+```html
+<tatvic-wrapper pii-redaction="true">
+  <!-- Application & tracking scripts -->
+</tatvic-wrapper>
+```
+
+

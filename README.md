@@ -27,6 +27,11 @@ This SDK introduces a **Morphed First-Party GTM Loader** (`/_tatvic/gtm.js`):
    - For bots, tracking scripts return a minimal `200 OK` stub (~100 bytes) and telemetry hits return `204 No Content`.
    - Result: **0 KB of heavy tracking scripts executed for bots**, zero main-thread CPU time, drastically reduced Total Blocking Time (TBT), and pristine analytics.
    - **Real-Time Console Logging**: Automatically logs `[Tatvic SDK] 🤖 Bot detected: <reason>` in DevTools and server logs, plus dispatches a `tatvic:bot-detected` DOM event.
+4. **Automatic PII (Personally Identifiable Information) Redaction:**
+   - Detects email addresses (plain `@` and URL-encoded `%40`, with negative lookahead protecting image filenames like `.png`, `.jpg`, `.svg`) and 10-digit phone numbers across standard keys (`phone`, `mobile`, `mobile_no`, `phone_number`, `ep.phone`, etc.).
+   - If any parameter contains PII, its value is automatically replaced with `"NA"` for that specific parameter only.
+   - Works seamlessly across URL query parameters and request bodies (URL-encoded form data, GA4 multiline `text/plain`, and `application/json`).
+   - Preserves all legitimate metrics and events while eliminating privacy risks and GA4 Terms of Service violations.
 
 ---
 
