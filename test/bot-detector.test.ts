@@ -244,4 +244,71 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
     interceptor.uninstall();
     console.warn = originalWarn;
   });
+
+  it('should auto-append UTM parameters (source=llm_agent, medium=openai/anthropic/gemini) upon bot detection', () => {
+    // 1. OpenAI (GPTBot)
+    const gptReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)' },
+    });
+    const gptRes = isServerBot(gptReq);
+    expect(gptRes.isBot).toBe(true);
+    expect(gptRes.utm).toBeDefined();
+    expect(gptRes.utm!.utm_source).toBe('llm_agent');
+    expect(gptRes.utm!.utm_medium).toBe('openai');
+    expect(gptRes.utm!.utm_campaign).toBe('gptbot');
+
+    // 2. Anthropic (ClaudeBot)
+    const claudeReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Mozilla/5.0 ClaudeBot/1.0; +claudebot@anthropic.com' },
+    });
+    const claudeRes = isServerBot(claudeReq);
+    expect(claudeRes.isBot).toBe(true);
+    expect(claudeRes.utm!.utm_source).toBe('llm_agent');
+    expect(claudeRes.utm!.utm_medium).toBe('anthropic');
+    expect(claudeRes.utm!.utm_campaign).toBe('claudebot');
+
+    // 3. Google Gemini
+    const geminiReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Google-Extended/1.0 (Gemini training bot)' },
+    });
+    const geminiRes = isServerBot(geminiReq);
+    expect(geminiRes.isBot).toBe(true);
+    expect(geminiRes.utm!.utm_source).toBe('llm_agent');
+    expect(geminiRes.utm!.utm_medium).toBe('gemini');
+
+    // 4. Perplexity
+    const perplexityReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'PerplexityBot/1.0' },
+    });
+    const perplexityRes = isServerBot(perplexityReq);
+    expect(perplexityRes.isBot).toBe(true);
+    expect(perplexityRes.utm!.utm_source).toBe('llm_agent');
+    expect(perplexityRes.utm!.utm_medium).toBe('perplexity');
+
+    // 5. ByteDance
+    const byteReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Bytespider' },
+    });
+    const byteRes = isServerBot(byteReq);
+    expect(byteRes.isBot).toBe(true);
+    expect(byteRes.utm!.utm_source).toBe('llm_agent');
+    expect(byteRes.utm!.utm_medium).toBe('bytedance');
+  });
+
+  it('should include UTM headers and dataLayer push script in getBypassedScriptResponse', async () => {
+    const res = getBypassedScriptResponse('AI Agent / LLM Crawler detected (GPTBot)', {
+      utm_source: 'llm_agent',
+      utm_medium: 'openai',
+      utm_campaign: 'gptbot',
+    });
+    expect(res.headers.get('x-tatvic-bot-bypass')).toBe('true');
+    expect(res.headers.get('x-tatvic-bot-source')).toBe('llm_agent');
+    expect(res.headers.get('x-tatvic-bot-medium')).toBe('openai');
+    expect(res.headers.get('x-tatvic-bot-campaign')).toBe('gptbot');
+
+    const text = await res.text();
+    expect(text).toContain("utm_source: 'llm_agent'");
+    expect(text).toContain("utm_medium: 'openai'");
+    expect(text).toContain("event: 'bot_detected'");
+  });
 });

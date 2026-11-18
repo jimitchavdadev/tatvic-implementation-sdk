@@ -108,7 +108,21 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
           queueMicrotask(suppressScripts);
         }
 
-        // Dispatch custom event for telemetry / developer observers
+        // Dispatch custom event for telemetry / developer observers with auto-appended UTM attribution
+        try {
+          if (typeof window !== 'undefined') {
+            const dl = (window as any).dataLayer || [];
+            (window as any).dataLayer = dl;
+            dl.push({
+              event: 'bot_detected',
+              utm_source: botCheck.utm?.utm_source ?? 'bot',
+              utm_medium: botCheck.utm?.utm_medium ?? 'automated_agent',
+              utm_campaign: botCheck.utm?.utm_campaign ?? 'bot_traffic',
+              bot_reason: botCheck.reason,
+            });
+          }
+        } catch {}
+
         try {
           window.dispatchEvent(
             new CustomEvent('tatvic:bot-detected', {

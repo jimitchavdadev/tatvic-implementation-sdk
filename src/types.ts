@@ -220,6 +220,12 @@ export interface BotDetectionOptions {
   allowlistPatterns?: (string | RegExp)[];
 }
 
+export interface BotUtmParams {
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+}
+
 /**
  * Result returned by bot detection analysis.
  */
@@ -255,6 +261,11 @@ export interface BotDetectionResult {
    * Cloudflare verified bot category if available.
    */
   category?: string;
+
+  /**
+   * Automatically attributed UTM parameters for bot / agent identification.
+   */
+  utm?: BotUtmParams;
 }
 
 /**
