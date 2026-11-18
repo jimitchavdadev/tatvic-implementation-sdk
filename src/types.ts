@@ -223,7 +223,6 @@ export interface BotDetectionOptions {
 export interface BotUtmParams {
   utm_source: string;
   utm_medium: string;
-  utm_campaign: string;
 }
 
 /**

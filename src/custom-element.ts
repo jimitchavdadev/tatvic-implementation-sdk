@@ -117,7 +117,6 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
               event: 'bot_detected',
               utm_source: botCheck.utm?.utm_source ?? 'bot',
               utm_medium: botCheck.utm?.utm_medium ?? 'automated_agent',
-              utm_campaign: botCheck.utm?.utm_campaign ?? 'bot_traffic',
               bot_reason: botCheck.reason,
             });
           }

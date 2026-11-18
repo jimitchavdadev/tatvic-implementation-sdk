@@ -255,7 +255,6 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
     expect(gptRes.utm).toBeDefined();
     expect(gptRes.utm!.utm_source).toBe('llm_agent');
     expect(gptRes.utm!.utm_medium).toBe('openai');
-    expect(gptRes.utm!.utm_campaign).toBe('gptbot');
 
     // 2. Anthropic (ClaudeBot)
     const claudeReq = new Request('https://example.com/_tatvic/loader.js', {
@@ -265,7 +264,6 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
     expect(claudeRes.isBot).toBe(true);
     expect(claudeRes.utm!.utm_source).toBe('llm_agent');
     expect(claudeRes.utm!.utm_medium).toBe('anthropic');
-    expect(claudeRes.utm!.utm_campaign).toBe('claudebot');
 
     // 3. Google Gemini
     const geminiReq = new Request('https://example.com/_tatvic/loader.js', {
@@ -299,12 +297,10 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
     const res = getBypassedScriptResponse('AI Agent / LLM Crawler detected (GPTBot)', {
       utm_source: 'llm_agent',
       utm_medium: 'openai',
-      utm_campaign: 'gptbot',
     });
     expect(res.headers.get('x-tatvic-bot-bypass')).toBe('true');
     expect(res.headers.get('x-tatvic-bot-source')).toBe('llm_agent');
     expect(res.headers.get('x-tatvic-bot-medium')).toBe('openai');
-    expect(res.headers.get('x-tatvic-bot-campaign')).toBe('gptbot');
 
     const text = await res.text();
     expect(text).toContain("utm_source: 'llm_agent'");

@@ -78,7 +78,7 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
             return getBypassedScriptResponse(botCheck.reason, botCheck.utm);
           }
 
-          // For telemetry / tracking beacon hits: Return 204 No Content with auto-appended bot attribution headers
+          // For telemetry / tracking beacon hits: Return 204 No Content with auto-appended bot attribution headers (source & medium)
           const utm = botCheck.utm;
           return new Response(null, {
             status: 204,
@@ -87,10 +87,9 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
               'X-Tatvic-Bot-Reason': botCheck.reason ?? 'Automated bot traffic',
               'X-Tatvic-Bot-Source': utm?.utm_source ?? 'bot',
               'X-Tatvic-Bot-Medium': utm?.utm_medium ?? 'automated_agent',
-              'X-Tatvic-Bot-Campaign': utm?.utm_campaign ?? 'bot_traffic',
               'Access-Control-Allow-Origin': '*',
               'Access-Control-Expose-Headers':
-                'X-Tatvic-Bot-Bypass, X-Tatvic-Bot-Reason, X-Tatvic-Bot-Source, X-Tatvic-Bot-Medium, X-Tatvic-Bot-Campaign',
+                'X-Tatvic-Bot-Bypass, X-Tatvic-Bot-Reason, X-Tatvic-Bot-Source, X-Tatvic-Bot-Medium',
             },
           });
         }

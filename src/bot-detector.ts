@@ -113,81 +113,81 @@ export const DEFAULT_BOT_OPTIONS: Required<BotDetectionOptions> = {
 };
 
 /**
- * Resolves automated bot, LLM crawler, or synthetic agent identification into standardized UTM parameters.
- * - OpenAI (GPTBot, ChatGPT)  -> utm_source=llm_agent, utm_medium=openai, utm_campaign=gptbot
- * - Anthropic (ClaudeBot)     -> utm_source=llm_agent, utm_medium=anthropic, utm_campaign=claudebot
- * - Google Gemini / Vertex    -> utm_source=llm_agent, utm_medium=gemini, utm_campaign=google_gemini
- * - Perplexity                -> utm_source=llm_agent, utm_medium=perplexity, utm_campaign=perplexitybot
- * - ByteDance (Bytespider)    -> utm_source=llm_agent, utm_medium=bytedance, utm_campaign=bytespider
- * - Meta AI                   -> utm_source=llm_agent, utm_medium=meta, utm_campaign=meta_agent
- * - DeepSeek                  -> utm_source=llm_agent, utm_medium=deepseek, utm_campaign=deepseek
- * - Applebot-Extended         -> utm_source=llm_agent, utm_medium=apple, utm_campaign=applebot_extended
- * - Mistral                   -> utm_source=llm_agent, utm_medium=mistral, utm_campaign=mistralbot
- * - Lighthouse / PageSpeed    -> utm_source=bot, utm_medium=lighthouse, utm_campaign=pagespeed_audit
- * - Headless browser runner   -> utm_source=bot, utm_medium=headless_browser, utm_campaign=browser_automation
- * - Script / HTTP scraper     -> utm_source=bot, utm_medium=http_scraper, utm_campaign=script_client
+ * Resolves automated bot, LLM crawler, or synthetic agent identification into standardized UTM parameters (source & medium).
+ * - OpenAI (GPTBot, ChatGPT)  -> utm_source=llm_agent, utm_medium=openai
+ * - Anthropic (ClaudeBot)     -> utm_source=llm_agent, utm_medium=anthropic
+ * - Google Gemini / Vertex    -> utm_source=llm_agent, utm_medium=gemini
+ * - Perplexity                -> utm_source=llm_agent, utm_medium=perplexity
+ * - ByteDance (Bytespider)    -> utm_source=llm_agent, utm_medium=bytedance
+ * - Meta AI                   -> utm_source=llm_agent, utm_medium=meta
+ * - DeepSeek                  -> utm_source=llm_agent, utm_medium=deepseek
+ * - Applebot-Extended         -> utm_source=llm_agent, utm_medium=apple
+ * - Mistral                   -> utm_source=llm_agent, utm_medium=mistral
+ * - Lighthouse / PageSpeed    -> utm_source=bot, utm_medium=lighthouse
+ * - Headless browser runner   -> utm_source=bot, utm_medium=headless_browser
+ * - Script / HTTP scraper     -> utm_source=bot, utm_medium=http_scraper
  */
 export function getBotUtmParams(userAgent: string, botResult?: BotDetectionResult): BotUtmParams {
   const ua = (userAgent || '').toLowerCase();
 
   // 1. OpenAI (GPTBot, ChatGPT, OAI-SearchBot)
   if (ua.includes('gptbot') || ua.includes('chatgpt') || ua.includes('oai-searchbot') || ua.includes('openai')) {
-    return { utm_source: 'llm_agent', utm_medium: 'openai', utm_campaign: 'gptbot' };
+    return { utm_source: 'llm_agent', utm_medium: 'openai' };
   }
 
   // 2. Anthropic (ClaudeBot, Claude-Web, Claude-User, anthropic-ai)
   if (ua.includes('claudebot') || ua.includes('claude') || ua.includes('anthropic')) {
-    return { utm_source: 'llm_agent', utm_medium: 'anthropic', utm_campaign: 'claudebot' };
+    return { utm_source: 'llm_agent', utm_medium: 'anthropic' };
   }
 
   // 3. Google Gemini / Vertex
   if (ua.includes('google-extended') || ua.includes('vertexbot') || ua.includes('gemini')) {
-    return { utm_source: 'llm_agent', utm_medium: 'gemini', utm_campaign: 'google_gemini' };
+    return { utm_source: 'llm_agent', utm_medium: 'gemini' };
   }
 
   // 4. Perplexity
   if (ua.includes('perplexity')) {
-    return { utm_source: 'llm_agent', utm_medium: 'perplexity', utm_campaign: 'perplexitybot' };
+    return { utm_source: 'llm_agent', utm_medium: 'perplexity' };
   }
 
   // 5. ByteDance
   if (ua.includes('bytespider')) {
-    return { utm_source: 'llm_agent', utm_medium: 'bytedance', utm_campaign: 'bytespider' };
+    return { utm_source: 'llm_agent', utm_medium: 'bytedance' };
   }
 
   // 6. DeepSeek
   if (ua.includes('deepseek')) {
-    return { utm_source: 'llm_agent', utm_medium: 'deepseek', utm_campaign: 'deepseek' };
+    return { utm_source: 'llm_agent', utm_medium: 'deepseek' };
   }
 
   // 7. Meta AI
   if (ua.includes('meta-external') || ua.includes('facebookbot')) {
-    return { utm_source: 'llm_agent', utm_medium: 'meta', utm_campaign: 'meta_agent' };
+    return { utm_source: 'llm_agent', utm_medium: 'meta' };
   }
 
   // 8. Applebot-Extended
   if (ua.includes('applebot-extended')) {
-    return { utm_source: 'llm_agent', utm_medium: 'apple', utm_campaign: 'applebot_extended' };
+    return { utm_source: 'llm_agent', utm_medium: 'apple' };
   }
 
   // 9. Mistral
   if (ua.includes('mistral')) {
-    return { utm_source: 'llm_agent', utm_medium: 'mistral', utm_campaign: 'mistralbot' };
+    return { utm_source: 'llm_agent', utm_medium: 'mistral' };
   }
 
   // 10. Cohere
   if (ua.includes('cohere')) {
-    return { utm_source: 'llm_agent', utm_medium: 'cohere', utm_campaign: 'cohere_ai' };
+    return { utm_source: 'llm_agent', utm_medium: 'cohere' };
   }
 
   // 11. Common Crawl
   if (ua.includes('ccbot')) {
-    return { utm_source: 'llm_agent', utm_medium: 'common_crawl', utm_campaign: 'ccbot' };
+    return { utm_source: 'llm_agent', utm_medium: 'common_crawl' };
   }
 
   // 12. Automated Lighthouse / Audits
   if (ua.includes('lighthouse') || ua.includes('pagespeed')) {
-    return { utm_source: 'bot', utm_medium: 'lighthouse', utm_campaign: 'pagespeed_audit' };
+    return { utm_source: 'bot', utm_medium: 'lighthouse' };
   }
 
   // 13. Headless Browsers
@@ -198,7 +198,7 @@ export function getBotUtmParams(userAgent: string, botResult?: BotDetectionResul
     ua.includes('selenium') ||
     botResult?.type === 'automated_browser'
   ) {
-    return { utm_source: 'bot', utm_medium: 'headless_browser', utm_campaign: 'browser_automation' };
+    return { utm_source: 'bot', utm_medium: 'headless_browser' };
   }
 
   // 14. HTTP Scrapers (curl, python, etc.)
@@ -209,7 +209,7 @@ export function getBotUtmParams(userAgent: string, botResult?: BotDetectionResul
     ua.includes('wget') ||
     botResult?.type === 'http_scraper'
   ) {
-    return { utm_source: 'bot', utm_medium: 'http_scraper', utm_campaign: 'script_client' };
+    return { utm_source: 'bot', utm_medium: 'http_scraper' };
   }
 
   // 15. Default Fallback
@@ -217,7 +217,6 @@ export function getBotUtmParams(userAgent: string, botResult?: BotDetectionResul
   return {
     utm_source: isAi ? 'llm_agent' : 'bot',
     utm_medium: isAi ? 'generic_ai' : 'unknown_bot',
-    utm_campaign: 'bot_traffic',
   };
 }
 
@@ -503,16 +502,15 @@ export function isClientBot(optionsConfig?: boolean | BotDetectionOptions): BotD
 /**
  * Generates a lightweight, empty JavaScript response to serve to bots.
  * This satisfies script loading without downloading, parsing, or executing heavy tracking tags,
- * and auto-attaches standardized UTM attribution (source, medium, campaign) to the response and dataLayer.
+ * and auto-attaches standardized UTM attribution (source and medium) to the response and dataLayer.
  */
 export function getBypassedScriptResponse(reason?: string, utm?: BotUtmParams): Response {
   const safeReason = (reason ?? 'Automated bot').replace(/[\r\n"']/g, ' ');
   const utmSource = utm?.utm_source ?? 'bot';
   const utmMedium = utm?.utm_medium ?? 'automated_agent';
-  const utmCampaign = utm?.utm_campaign ?? 'bot_traffic';
 
   const code = `/* [Tatvic SDK] 🤖 Automated agent detected (${safeReason}).
- * Auto-appended attribution: utm_source=${utmSource}&utm_medium=${utmMedium}&utm_campaign=${utmCampaign}
+ * Auto-appended attribution: utm_source=${utmSource}&utm_medium=${utmMedium}
  * Analytics script loading bypassed to optimize page speed and protect analytics data.
  */
 if (typeof console !== 'undefined' && console.warn) {
@@ -524,7 +522,6 @@ if (typeof window !== 'undefined') {
     event: 'bot_detected',
     utm_source: '${utmSource}',
     utm_medium: '${utmMedium}',
-    utm_campaign: '${utmCampaign}',
     bot_reason: '${safeReason}'
   });
 }
@@ -540,7 +537,6 @@ if (typeof window !== 'undefined') {
       'X-Tatvic-Bot-Reason': safeReason,
       'X-Tatvic-Bot-Source': utmSource,
       'X-Tatvic-Bot-Medium': utmMedium,
-      'X-Tatvic-Bot-Campaign': utmCampaign,
     },
   });
 }
