@@ -23,6 +23,19 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
 
   return async function handleProxyRequest(request: Request): Promise<Response> {
     try {
+      // 0. Handle CORS Preflight (OPTIONS) requests immediately
+      if (request.method === 'OPTIONS') {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD',
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Max-Age': '86400',
+          },
+        });
+      }
+
       const reqUrl = new URL(request.url);
 
       // Check if this request is explicitly in Tag Assistant preview or debug mode
@@ -109,7 +122,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       if (!targetUrlStr) {
         return new Response(JSON.stringify({ error: 'Missing target destination' }), {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+          },
         });
       }
 
@@ -127,7 +144,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
           if (options.obfuscateTarget) {
             return new Response(JSON.stringify({ error: 'Invalid obfuscated target' }), {
               status: 400,
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': '*',
+              },
             });
           }
         }
@@ -140,7 +161,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       } catch {
         return new Response(JSON.stringify({ error: 'Malformed target URL' }), {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+          },
         });
       }
 
@@ -162,7 +187,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
         return new Response(JSON.stringify({ error: 'Unsupported protocol' }), {
           status: 403,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+          },
         });
       }
 
@@ -171,7 +200,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       if (!isAllowed) {
         return new Response(JSON.stringify({ error: 'Target host is not permitted' }), {
           status: 403,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+          },
         });
       }
 
@@ -293,7 +326,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       const message = err instanceof Error ? err.message : 'Proxy forwarding failed';
       return new Response(JSON.stringify({ error: message }), {
         status: 502,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': '*',
+        },
       });
     }
   };
