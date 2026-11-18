@@ -6,6 +6,59 @@ import {
   DEFAULT_EXCLUDE_DOMAINS,
 } from './defaults.js';
 
+/**
+ * Sanitizes and reorders query parameters to strictly evade EasyPrivacy, uBlock Origin,
+ * and Brave Shields ad-blocking rules without losing any telemetry data:
+ * - Prepends cache-buster '_p' parameter to defeat '?v=2&tid=G-$~third-party' rule.
+ * - Aliases 'gtm' -> '_gtm' to defeat '&gtm=*&tag_exp=', '&cx=c&gtm=', '&tid=*&gtm=*&ecid='.
+ * - Aliases 'tag_exp' -> '_tag_exp' to defeat '&gtm=*&tag_exp='.
+ * - Aliases 'cx' -> '_cx' to defeat '&cx=c&gtm=' and '&l=dataLayer&cx=c'.
+ * - Aliases 'l' -> '_l' if dataLayer to defeat '&l=dataLayer&cx=c'.
+ * - Moves 'v' to the very end of the query string.
+ */
+export function sanitizeParamsForAdBlockers(params: URLSearchParams): URLSearchParams {
+  const sanitized = new URLSearchParams();
+
+  // 1. If '_p' is present, place it first as a cache-buster / prefix
+  if (params.has('_p')) {
+    sanitized.set('_p', params.get('_p')!);
+  }
+
+  // 2. Put 'tid' near the front so query string never starts with 'v='
+  if (params.has('tid')) {
+    sanitized.set('tid', params.get('tid')!);
+  }
+
+  let vVal: string | null = null;
+
+  params.forEach((val, key) => {
+    if (key === '_p' || key === 'tid') return;
+    if (key === 'v') {
+      vVal = val;
+      return;
+    }
+
+    if (key === 'gtm') {
+      sanitized.set('_gtm', val);
+    } else if (key === 'tag_exp') {
+      sanitized.set('_tag_exp', val);
+    } else if (key === 'cx') {
+      sanitized.set('_cx', val);
+    } else if (key === 'l' && (val === 'dataLayer' || val.includes('Layer'))) {
+      sanitized.set('_l', val);
+    } else {
+      sanitized.set(key, val);
+    }
+  });
+
+  // 3. Put 'v' at the very end
+  if (vVal !== null) {
+    sanitized.set('v', vVal);
+  }
+
+  return sanitized;
+}
+
 export class UrlMatcher {
   private targetDomains: (string | RegExp)[];
   private excludeDomains: (string | RegExp)[];
@@ -96,19 +149,14 @@ export class UrlMatcher {
         (parsedTarget.searchParams.has('v') && parsedTarget.searchParams.has('tid')));
 
     // When preserveQueryOnProxyUrl is true and this is a GA4/sGTM collect request,
-    // route directly through proxyEndpoint with query params (?tid=G-...&v=2)
+    // route directly through proxyEndpoint with sanitized and reordered query params (_p=...&tid=...&v=2)
     // so Chrome DevTools parses all params natively in the Payload tab while strictly
-    // avoiding '/g/collect' and the '?v=2&tid=G-$~third-party' ad-blocker rule.
+    // defeating EasyPrivacy / uBlock rules ('?v=2&tid=G-$~third-party', '&gtm=*&tag_exp=', '&cx=c&gtm=').
     if (this.preserveQueryOnProxyUrl && isGa4Collect) {
       let search = '';
       if (parsedTarget && parsedTarget.search) {
-        const params = new URLSearchParams(parsedTarget.search);
-        if (params.has('v')) {
-          const v = params.get('v')!;
-          params.delete('v');
-          params.set('v', v);
-        }
-        search = params.toString();
+        const sanitized = sanitizeParamsForAdBlockers(parsedTarget.searchParams);
+        search = sanitized.toString();
       }
       const sep = this.proxyEndpoint.includes('?') ? '&' : '?';
       const proxyUrl = search ? `${this.proxyEndpoint}${sep}${search}` : this.proxyEndpoint;
@@ -121,11 +169,12 @@ export class UrlMatcher {
 
     if (mode === 'query') {
       if (this.preserveQueryOnProxyUrl && parsedTarget && parsedTarget.search) {
-        // Otherwise preserve query params as top-level params and attach target base
+        // Otherwise preserve sanitized query params as top-level params and attach target base
+        const sanitized = sanitizeParamsForAdBlockers(parsedTarget.searchParams);
         const baseTarget = `${parsedTarget.origin}${parsedTarget.pathname}`;
         const encodedBaseTarget = this.encodeTarget(baseTarget);
         const sep = this.proxyEndpoint.includes('?') ? '&' : '?';
-        const proxyUrl = `${this.proxyEndpoint}${sep}${parsedTarget.search.slice(1)}&_tgt=${encodeURIComponent(encodedBaseTarget)}`;
+        const proxyUrl = `${this.proxyEndpoint}${sep}${sanitized.toString()}&_tgt=${encodeURIComponent(encodedBaseTarget)}`;
         return { proxyUrl };
       }
 
@@ -135,11 +184,12 @@ export class UrlMatcher {
     }
 
     // In header mode: preserve original query parameters on proxyUrl if enabled,
-    // so Chrome DevTools' "Payload" tab parses and displays query string parameters natively just like normal collect hits
+    // applying ad-blocker sanitization so neither Brave nor uBlock Origin blocks the request.
     let proxyUrl = this.proxyEndpoint;
     if (this.preserveQueryOnProxyUrl && parsedTarget && parsedTarget.search) {
+      const sanitized = sanitizeParamsForAdBlockers(parsedTarget.searchParams);
       const sep = proxyUrl.includes('?') ? '&' : '?';
-      proxyUrl = `${proxyUrl}${sep}${parsedTarget.search.slice(1)}`;
+      proxyUrl = `${proxyUrl}${sep}${sanitized.toString()}`;
     }
 
     return {
@@ -147,6 +197,22 @@ export class UrlMatcher {
       headerName: this.targetHeaderName,
       headerValue: encodedTarget,
     };
+  }
+
+  public getProxyEndpoint(): string {
+    return this.proxyEndpoint;
+  }
+
+  /**
+   * Sanitizes any URL (especially requests already targeted at proxyEndpoint)
+   * to ensure no ad-blocker filter triggers in the query string.
+   */
+  public sanitizeUrl(urlStr: string): string {
+    const parsed = this.parseUrl(urlStr);
+    if (!parsed || !parsed.search) return urlStr;
+
+    const sanitized = sanitizeParamsForAdBlockers(parsed.searchParams);
+    return `${parsed.origin}${parsed.pathname}?${sanitized.toString()}`;
   }
 
   public log(...args: unknown[]): void {
@@ -163,7 +229,7 @@ export class UrlMatcher {
     return hostname === cleanRule || hostname.endsWith(`.${cleanRule}`);
   }
 
-  private parseUrl(urlStr: string): URL | null {
+  public parseUrl(urlStr: string): URL | null {
     try {
       if (typeof window !== 'undefined' && window.location?.origin) {
         return new URL(urlStr, window.location.origin);

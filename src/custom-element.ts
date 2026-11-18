@@ -25,6 +25,13 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
     const serverPreview = this.getAttribute
       ? (this.getAttribute('server-preview') || this.getAttribute('server-preview-token') || undefined)
       : undefined;
+
+    if (serverPreview && typeof window !== 'undefined') {
+      (window as any).__TATVIC_PREVIEW_TOKEN = serverPreview;
+      try {
+        sessionStorage.setItem('_tatvic_preview_token', serverPreview);
+      } catch {}
+    }
     const botDetectionAttr = this.getAttribute ? this.getAttribute('bot-detection') : null;
     const botDetectionEnabled = botDetectionAttr !== 'false';
     const piiRedactionAttr = this.getAttribute ? this.getAttribute('pii-redaction') : null;

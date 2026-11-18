@@ -46,9 +46,12 @@ export function morphGtmScript(originalCode: string, relayEndpoint = '/_tatvic/r
     [/https:\/\/www\.google-analytics\.com\/g\/collect/g, `${relayEndpoint}`],
     [/https:\/\/analytics\.google\.com\/g\/collect/g, `${relayEndpoint}`],
     [/https:\/\/region1\.google-analytics\.com\/g\/collect/g, `${relayEndpoint}`],
+    [/https:\/\/stats\.g\.doubleclick\.net\/g\/collect/g, `${relayEndpoint}`],
     [/https:\/\/www\.google-analytics\.com\//g, `${relayEndpoint}?_tgt=https%3A%2F%2Fwww.google-analytics.com%2F`],
     [/https:\/\/analytics\.google\.com\//g, `${relayEndpoint}?_tgt=https%3A%2F%2Fanalytics.google.com%2F`],
     [/https:\/\/region1\.google-analytics\.com\//g, `${relayEndpoint}?_tgt=https%3A%2F%2Fregion1.google-analytics.com%2F`],
+    // GTM internal diagnostic telemetry pings (/a?)
+    [/https:\/\/www\.googletagmanager\.com\/a\?/g, `${relayEndpoint}?_telemetry=gtm&`],
   ];
 
   for (const [pattern, replacement] of endpointReplacements) {

@@ -140,7 +140,15 @@ export class RequestInterceptor {
         targetUrl = String(input);
       }
 
-      if (!matcher.shouldProxy(targetUrl)) {
+      const parsed = matcher.parseUrl(targetUrl);
+      const isAlreadyProxy =
+        parsed &&
+        typeof window !== 'undefined' &&
+        window.location?.origin &&
+        parsed.origin === window.location.origin &&
+        parsed.pathname.startsWith(matcher.getProxyEndpoint());
+
+      if (!matcher.shouldProxy(targetUrl) && !isAlreadyProxy) {
         return originalFetch(input, init);
       }
 
@@ -156,12 +164,24 @@ export class RequestInterceptor {
 
       matcher.log('Intercepted fetch:', targetUrl);
       const isNoCors = init?.mode === 'no-cors' || (typeof Request !== 'undefined' && input instanceof Request && input.mode === 'no-cors');
-      const info = matcher.getProxiedRequestInfo(targetUrl, isNoCors ? 'query' : undefined);
-      let proxyUrl = info.proxyUrl;
+      const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
+
+      let proxyUrl: string;
+      let headerName: string | undefined;
+      let headerValue: string | undefined;
+
+      if (isAlreadyProxy) {
+        proxyUrl = matcher.sanitizeUrl(targetUrl);
+      } else {
+        const info = matcher.getProxiedRequestInfo(targetUrl, isNoCors ? 'query' : undefined);
+        proxyUrl = info.proxyUrl;
+        headerName = info.headerName;
+        headerValue = info.headerValue;
+      }
+
       if (this.piiRedactor.isEnabled()) {
         proxyUrl = this.piiRedactor.redactUrl(proxyUrl);
       }
-      const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
 
       // Handle Request object input vs (url, init)
       if (typeof Request !== 'undefined' && input instanceof Request) {
@@ -169,8 +189,8 @@ export class RequestInterceptor {
         if (init?.headers) {
           new Headers(init.headers).forEach((val, key) => headers.set(key, val));
         }
-        if (info.headerName && info.headerValue && !isNoCors) {
-          headers.set(info.headerName, info.headerValue);
+        if (headerName && headerValue && !isNoCors) {
+          headers.set(headerName, headerValue);
         }
         if (previewToken && !headers.has('x-gtm-server-preview')) {
           headers.set('x-gtm-server-preview', previewToken);
@@ -195,8 +215,8 @@ export class RequestInterceptor {
 
       // Handle string / URL input
       const headers = new Headers(init?.headers);
-      if (info.headerName && info.headerValue && !isNoCors) {
-        headers.set(info.headerName, info.headerValue);
+      if (headerName && headerValue && !isNoCors) {
+        headers.set(headerName, headerValue);
       }
       if (previewToken && !headers.has('x-gtm-server-preview')) {
         headers.set('x-gtm-server-preview', previewToken);
@@ -248,7 +268,15 @@ export class RequestInterceptor {
     ): void {
       const targetUrl = url.toString();
 
-      if (matcher.shouldProxy(targetUrl)) {
+      const parsed = matcher.parseUrl(targetUrl);
+      const isAlreadyProxy =
+        parsed &&
+        typeof window !== 'undefined' &&
+        window.location?.origin &&
+        parsed.origin === window.location.origin &&
+        parsed.pathname.startsWith(matcher.getProxyEndpoint());
+
+      if (matcher.shouldProxy(targetUrl) || isAlreadyProxy) {
         if (isBot()) {
           matcher.log('Suppressed XHR for automated bot:', targetUrl);
           this.__tatvicMeta = {
@@ -261,8 +289,19 @@ export class RequestInterceptor {
         }
 
         matcher.log('Intercepted XHR:', targetUrl);
-        const info = matcher.getProxiedRequestInfo(targetUrl);
-        let proxyUrl = info.proxyUrl;
+        let proxyUrl: string;
+        let headerName: string | undefined;
+        let headerValue: string | undefined;
+
+        if (isAlreadyProxy) {
+          proxyUrl = matcher.sanitizeUrl(targetUrl);
+        } else {
+          const info = matcher.getProxiedRequestInfo(targetUrl);
+          proxyUrl = info.proxyUrl;
+          headerName = info.headerName;
+          headerValue = info.headerValue;
+        }
+
         if (piiRedactor.isEnabled()) {
           proxyUrl = piiRedactor.redactUrl(proxyUrl);
         }
@@ -271,8 +310,8 @@ export class RequestInterceptor {
         this.__tatvicMeta = {
           isProxied: true,
           originalUrl: targetUrl,
-          headerName: info.headerName,
-          headerValue: info.headerValue,
+          headerName,
+          headerValue,
           previewToken,
         };
 
@@ -341,7 +380,21 @@ export class RequestInterceptor {
     navigator.sendBeacon = (url: string | URL, data?: BodyInit | null): boolean => {
       const targetUrl = url.toString();
 
-      if (!matcher.shouldProxy(targetUrl)) {
+      // Suppress GTM internal diagnostic telemetry pings (/a?)
+      if (targetUrl.includes('/a?') || targetUrl.includes('_telemetry=gtm')) {
+        matcher.log('Suppressed GTM telemetry beacon:', targetUrl);
+        return true;
+      }
+
+      const parsed = matcher.parseUrl(targetUrl);
+      const isAlreadyProxy =
+        parsed &&
+        typeof window !== 'undefined' &&
+        window.location?.origin &&
+        parsed.origin === window.location.origin &&
+        parsed.pathname.startsWith(matcher.getProxyEndpoint());
+
+      if (!matcher.shouldProxy(targetUrl) && !isAlreadyProxy) {
         return originalSendBeacon(url, data);
       }
 
@@ -357,10 +410,10 @@ export class RequestInterceptor {
         beaconData = this.piiRedactor.redactBody(beaconData);
       }
 
-      // Preferred: fetch with keepalive: true (supports custom proxy headers)
+      // If polyfillWithKeepalive is enabled, use fetch with keepalive: true (supports custom proxy headers)
       if (polyfillWithKeepalive && typeof window.fetch === 'function') {
         const info = matcher.getProxiedRequestInfo(targetUrl);
-        let proxyUrl = info.proxyUrl;
+        let proxyUrl = isAlreadyProxy ? matcher.sanitizeUrl(targetUrl) : info.proxyUrl;
         if (this.piiRedactor.isEnabled()) {
           proxyUrl = this.piiRedactor.redactUrl(proxyUrl);
         }
@@ -389,22 +442,44 @@ export class RequestInterceptor {
         }
       }
 
-      // Fallback: sendBeacon with target in query parameter
-      const queryInfo = matcher.getProxiedRequestInfo(targetUrl, 'query');
-      let fallbackUrl = queryInfo.proxyUrl;
+      let destinationUrl: string;
+      if (isAlreadyProxy) {
+        destinationUrl = matcher.sanitizeUrl(targetUrl);
+      } else {
+        const queryInfo = matcher.getProxiedRequestInfo(targetUrl, 'query');
+        destinationUrl = queryInfo.proxyUrl;
+      }
+
       if (this.piiRedactor.isEnabled()) {
-        fallbackUrl = this.piiRedactor.redactUrl(fallbackUrl);
+        destinationUrl = this.piiRedactor.redactUrl(destinationUrl);
       }
+
       const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
-      if (previewToken) {
-        fallbackUrl += (fallbackUrl.includes('?') ? '&' : '?') + '_gtm_server_preview=' + encodeURIComponent(previewToken);
+      if (previewToken && !destinationUrl.includes('_gtm_server_preview=')) {
+        destinationUrl += (destinationUrl.includes('?') ? '&' : '?') + '_gtm_server_preview=' + encodeURIComponent(previewToken);
       }
-      return originalSendBeacon(fallbackUrl, beaconData);
+
+      // Native sendBeacon never triggers a CORS preflight and is never blocked by Chromium/Blink
+      try {
+        return originalSendBeacon(destinationUrl, beaconData);
+      } catch {
+        try {
+          window.fetch(destinationUrl, {
+            method: 'POST',
+            body: beaconData,
+            keepalive: true,
+            mode: 'no-cors',
+          }).catch(() => {});
+          return true;
+        } catch {
+          return false;
+        }
+      }
     };
   }
 
   /**
-   * Patch HTMLScriptElement.prototype.src for dynamically injected scripts (GTM, pixels)
+   * Patch HTMLScriptElement.prototype.src for dynamically injected scripts (GTM, gtag, pixels)
    */
   private patchScriptElements(): void {
     if (typeof HTMLScriptElement === 'undefined') return;
@@ -434,26 +509,44 @@ export class RequestInterceptor {
 
         if (
           typeof val === 'string' &&
-          (val.includes('googletagmanager.com/gtm.js') || val.includes('/_tatvic/gtm.js') || val.includes('/_tatvic/loader.js'))
+          (val.includes('googletagmanager.com/gtm.js') ||
+            val.includes('googletagmanager.com/gtag/js') ||
+            val.includes('/gtag/js') ||
+            val.includes('/_tatvic/gtm.js') ||
+            val.includes('/_tatvic/loader.js'))
         ) {
           try {
             const pageSearch = typeof window !== 'undefined' && window.location ? window.location.search : '';
             const pageParams = new URLSearchParams(pageSearch);
             const targetUrl = new URL(val, typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost');
 
+            const isGtag = val.includes('/gtag/js');
             const containerId =
               targetUrl.searchParams.get('cid') ||
               targetUrl.searchParams.get('container') ||
               targetUrl.searchParams.get('tag') ||
               targetUrl.searchParams.get('id') ||
-              'GTM-T32XGF8F';
+              (isGtag ? 'G-VVBCZC9JSW' : 'GTM-T32XGF8F');
 
             const morphedParams = new URLSearchParams();
-            // Use stealth param 'cid' to evade EasyPrivacy's '.js?id=GTM-' and '/gtm.js' rules
+            // Use stealth param 'cid' to evade EasyPrivacy's '.js?id=GTM-' rule
             morphedParams.set('cid', containerId);
+            if (isGtag) {
+              morphedParams.set('_type', 'gtag');
+            }
 
+            // Copy other query parameters, aliasing any that trigger EasyPrivacy rules
             targetUrl.searchParams.forEach((v, k) => {
-              if (k !== 'id' && k !== 'cid' && k !== 'container' && k !== 'tag') {
+              if (k === 'id' || k === 'cid' || k === 'container' || k === 'tag') return;
+              if (k === 'cx') {
+                morphedParams.set('_cx', v);
+              } else if (k === 'gtm') {
+                morphedParams.set('_gtm', v);
+              } else if (k === 'tag_exp') {
+                morphedParams.set('_tag_exp', v);
+              } else if (k === 'l' && (v === 'dataLayer' || v.includes('Layer'))) {
+                morphedParams.set('_l', v);
+              } else {
                 morphedParams.set(k, v);
               }
             });
@@ -466,7 +559,7 @@ export class RequestInterceptor {
             }
 
             const morphedUrl = `/_tatvic/loader.js?${morphedParams.toString()}`;
-            matcher.log('Morphed GTM script element to stealth loader:', val, '->', morphedUrl);
+            matcher.log('Morphed script element to stealth loader:', val, '->', morphedUrl);
             return originalSet.call(this, morphedUrl);
           } catch {
             // Fallback to standard proxying
@@ -526,13 +619,46 @@ export class RequestInterceptor {
   }
 
   /**
-   * Helper to detect active Server-Side GTM Preview & Debug tokens from current URL.
+   * Helper to detect active Server-Side GTM Preview & Debug tokens from current URL,
+   * sessionStorage, cookies, or wrapper configuration.
    */
   private detectPreviewToken(): string | undefined {
-    if (typeof window === 'undefined' || !window.location) return undefined;
+    if (typeof window === 'undefined') return undefined;
     try {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('gtm_server_preview') || undefined;
+      // 1. Check window.__TATVIC_PREVIEW_TOKEN set by wrapper element
+      if ((window as any).__TATVIC_PREVIEW_TOKEN) {
+        return (window as any).__TATVIC_PREVIEW_TOKEN;
+      }
+
+      // 2. Check URL search parameters
+      if (window.location && window.location.search) {
+        const params = new URLSearchParams(window.location.search);
+        const token =
+          params.get('gtm_server_preview') ||
+          params.get('_gtm_server_preview') ||
+          params.get('server_preview') ||
+          params.get('gtm_preview');
+        if (token) {
+          try {
+            sessionStorage.setItem('_tatvic_preview_token', token);
+          } catch {}
+          return token;
+        }
+      }
+
+      // 3. Check sessionStorage (persists across page navigations in preview session)
+      try {
+        const saved = sessionStorage.getItem('_tatvic_preview_token');
+        if (saved) return saved;
+      } catch {}
+
+      // 4. Check document.cookie for GTM preview cookies
+      if (typeof document !== 'undefined' && document.cookie) {
+        const match = document.cookie.match(/(?:^|;\s*)(?:_gtm_server_preview|gtm_server_preview)=([^;]+)/);
+        if (match && match[1]) return decodeURIComponent(match[1]);
+      }
+
+      return undefined;
     } catch {
       return undefined;
     }

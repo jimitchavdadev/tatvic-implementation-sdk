@@ -115,7 +115,8 @@ export const DEFAULT_EXCLUDE_DOMAINS: (string | RegExp)[] = [
   'accounts.google.com',
   'appleid.apple.com',
 
-  // Core Cloud Infrastructure
+  // Core Cloud Infrastructure & Debug Tools
+  'tagassistant.google.com',
   'amazonaws.com',
   'googleapis.com',
   'cloudflare.com',

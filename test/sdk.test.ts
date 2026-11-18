@@ -269,7 +269,43 @@ describe('RequestInterceptor in Browser Context', () => {
 
     expect(script.src).toBe('/_tatvic/loader.js?cid=GTM-T32XGF8F');
 
+    // Intercept dynamic gtag.js script and alias EasyPrivacy triggering params (cx, gtm)
+    script.src = 'https://www.googletagmanager.com/gtag/js?id=G-VVBCZC9JSW&l=dataLayer&cx=c&gtm=45Heb1';
+    expect(script.src).toBe('/_tatvic/loader.js?cid=G-VVBCZC9JSW&_type=gtag&_l=dataLayer&_cx=c&_gtm=45Heb1');
+
     interceptor.uninstall();
+  });
+
+  it('should sanitize requests already targeting proxy endpoint to evade EasyPrivacy rules', async () => {
+    let capturedUrl = '';
+    const mockWindow = {
+      ...globalThis,
+      location: { origin: 'http://localhost:5005' },
+      fetch: ((url: string) => {
+        capturedUrl = url;
+        return Promise.resolve(new Response('ok'));
+      }) as typeof fetch,
+    };
+    (globalThis as any).window = mockWindow;
+    globalThis.fetch = mockWindow.fetch;
+
+    const interceptor = new RequestInterceptor({
+      proxyEndpoint: '/_tatvic/relay',
+    });
+    interceptor.install();
+
+    // Simulate GTM firing collect fetch directly to /_tatvic/relay with EasyPrivacy-triggering params
+    await mockWindow.fetch('http://localhost:5005/_tatvic/relay?v=2&tid=G-VVBCZC9JSW&gtm=45Heb1&tag_exp=101509157');
+
+    // Query should not contain &gtm= or &tag_exp= (aliased to _gtm and _tag_exp), and tid placed before v=2
+    expect(capturedUrl).toContain('_gtm=45Heb1');
+    expect(capturedUrl).toContain('_tag_exp=101509157');
+    expect(capturedUrl).not.toContain('&gtm=');
+    expect(capturedUrl).not.toContain('&tag_exp=');
+    expect(capturedUrl).toContain('tid=G-VVBCZC9JSW');
+
+    interceptor.uninstall();
+    (globalThis as any).window = globalThis;
   });
 });
 

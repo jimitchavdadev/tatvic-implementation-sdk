@@ -38,6 +38,17 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
 
       const reqUrl = new URL(request.url);
 
+      // Handle GTM internal telemetry / diagnostics pings silently
+      if (reqUrl.searchParams.has('_telemetry') || reqUrl.pathname.includes('/a?') || reqUrl.pathname.endsWith('/a')) {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+          },
+        });
+      }
+
       // Check if this request is explicitly in Tag Assistant preview or debug mode
       const isPreviewMode =
         request.headers.has('x-gtm-server-preview') ||
@@ -101,14 +112,16 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       }
 
       // Transparent Direct Routing:
-      // If request hits /_tatvic/g/collect or /_tatvic/collect, or carries standard GA4 parameters (?v=2&tid=...),
+      // If request hits /_tatvic/g/collect or /_tatvic/collect, or carries tracking parameters (tid, v, en),
       // automatically route directly to serverContainerUrl or upstream google-analytics.com!
       if (!targetUrlStr) {
-        if (
+        const isTrackingHit =
           reqUrl.pathname.includes('/g/collect') ||
           reqUrl.pathname.includes('/collect') ||
-          (reqUrl.searchParams.has('v') && reqUrl.searchParams.has('tid'))
-        ) {
+          reqUrl.searchParams.has('tid') ||
+          (reqUrl.searchParams.has('v') && (reqUrl.searchParams.has('cid') || reqUrl.searchParams.has('en')));
+
+        if (isTrackingHit) {
           const upstreamBase = options.serverContainerUrl || 'https://www.google-analytics.com';
           const subpath = reqUrl.pathname.includes('/g/collect')
             ? '/g/collect'
@@ -178,6 +191,9 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         });
       }
 
+      // Un-alias query parameters back to their standard names before forwarding to upstream services/sGTM
+      unaliasParamsFromAdBlockers(targetUrl.searchParams);
+
       // PII Redaction: Replace email and phone values with "NA" in query parameters
       if (piiRedactor.isEnabled()) {
         piiRedactor.redactSearchParams(targetUrl.searchParams);
@@ -231,13 +247,23 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         }
       });
 
-      // Forward server preview token if provided via header, query, or option
+      // Forward server preview token if provided via header, query, cookie, or option
+      const cookieHeader = request.headers.get('cookie') || '';
+      const cookiePreviewMatch = cookieHeader.match(/(?:^|;\s*)(?:_gtm_server_preview|gtm_server_preview)=([^;]+)/);
+      const cookiePreviewToken = cookiePreviewMatch && cookiePreviewMatch[1] ? decodeURIComponent(cookiePreviewMatch[1]) : null;
+
       const serverPreviewToken =
         request.headers.get('x-gtm-server-preview') ||
         reqUrl.searchParams.get('_gtm_server_preview') ||
+        reqUrl.searchParams.get('gtm_server_preview') ||
+        reqUrl.searchParams.get('server_preview') ||
+        cookiePreviewToken ||
         options.serverPreviewToken;
       if (serverPreviewToken) {
         upstreamHeaders.set('x-gtm-server-preview', serverPreviewToken);
+        if (!targetUrl.searchParams.has('_gtm_server_preview')) {
+          targetUrl.searchParams.set('_gtm_server_preview', serverPreviewToken);
+        }
 
         // When debugging in preview mode, ensure GA4 collect requests have debug signals (_dbg=1, ep.debug_mode=true)
         // so that the device immediately registers and displays in GA4 DebugView.
@@ -350,12 +376,24 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       });
     }
 
-    // Build upstream GTM url with 'id' parameter and all other query parameters preserved
-    const upstreamUrl = new URL('https://www.googletagmanager.com/gtm.js');
+    const isGtag = reqUrl.searchParams.get('_type') === 'gtag' || containerId.startsWith('G-');
+    const upstreamUrl = isGtag
+      ? new URL('https://www.googletagmanager.com/gtag/js')
+      : new URL('https://www.googletagmanager.com/gtm.js');
+
     upstreamUrl.searchParams.set('id', containerId);
 
     reqUrl.searchParams.forEach((val, key) => {
-      if (key !== 'cid' && key !== 'container' && key !== 'tag' && key !== 'id') {
+      if (key === 'cid' || key === 'container' || key === 'tag' || key === 'id' || key === '_type') return;
+      if (key === '_cx') {
+        upstreamUrl.searchParams.set('cx', val);
+      } else if (key === '_gtm') {
+        upstreamUrl.searchParams.set('gtm', val);
+      } else if (key === '_tag_exp') {
+        upstreamUrl.searchParams.set('tag_exp', val);
+      } else if (key === '_l') {
+        upstreamUrl.searchParams.set('l', val);
+      } else {
         upstreamUrl.searchParams.set(key, val);
       }
     });
@@ -397,6 +435,34 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+  }
+}
+
+function unaliasParamsFromAdBlockers(searchParams: URLSearchParams): void {
+  if (searchParams.has('_gtm')) {
+    const val = searchParams.get('_gtm')!;
+    searchParams.delete('_gtm');
+    searchParams.set('gtm', val);
+  }
+  if (searchParams.has('_tag_exp')) {
+    const val = searchParams.get('_tag_exp')!;
+    searchParams.delete('_tag_exp');
+    searchParams.set('tag_exp', val);
+  }
+  if (searchParams.has('_cx')) {
+    const val = searchParams.get('_cx')!;
+    searchParams.delete('_cx');
+    searchParams.set('cx', val);
+  }
+  if (searchParams.has('_l')) {
+    const val = searchParams.get('_l')!;
+    searchParams.delete('_l');
+    searchParams.set('l', val);
+  }
+  if (searchParams.has('_v')) {
+    const val = searchParams.get('_v')!;
+    searchParams.delete('_v');
+    searchParams.set('v', val);
   }
 }
 
