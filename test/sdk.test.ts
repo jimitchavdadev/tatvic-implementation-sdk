@@ -63,8 +63,8 @@ describe('UrlMatcher', () => {
     });
     const targetUrl = 'https://www.google-analytics.com/g/collect?v=2&tid=G-VVBCZC9JSW&cid=123';
     const info = matcher.getProxiedRequestInfo(targetUrl);
-    // Strictly routes through /_tatvic/relay without '/g/collect' so ad blockers do not block it
-    expect(info.proxyUrl).toBe('/_tatvic/relay?v=2&tid=G-VVBCZC9JSW&cid=123');
+    // Strictly routes through /_tatvic/relay with reordered params so '?v=2&tid=G-' EasyPrivacy rule does not match
+    expect(info.proxyUrl).toBe('/_tatvic/relay?tid=G-VVBCZC9JSW&cid=123&v=2');
 
     // Generic tracking endpoint with query routing
     const genericTarget = 'https://analytics.tiktok.com/api/v2/pixel?event=ViewContent&pixel_id=999';

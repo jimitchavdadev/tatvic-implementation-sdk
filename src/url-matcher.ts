@@ -96,11 +96,20 @@ export class UrlMatcher {
         (parsedTarget.searchParams.has('v') && parsedTarget.searchParams.has('tid')));
 
     // When preserveQueryOnProxyUrl is true and this is a GA4/sGTM collect request,
-    // route directly through proxyEndpoint with query params (?v=2&tid=...)
+    // route directly through proxyEndpoint with query params (?tid=G-...&v=2)
     // so Chrome DevTools parses all params natively in the Payload tab while strictly
-    // avoiding '/g/collect' which gets blocked by Brave Shields and ad blockers.
+    // avoiding '/g/collect' and the '?v=2&tid=G-$~third-party' ad-blocker rule.
     if (this.preserveQueryOnProxyUrl && isGa4Collect) {
-      const search = parsedTarget && parsedTarget.search ? parsedTarget.search.slice(1) : '';
+      let search = '';
+      if (parsedTarget && parsedTarget.search) {
+        const params = new URLSearchParams(parsedTarget.search);
+        if (params.has('v')) {
+          const v = params.get('v')!;
+          params.delete('v');
+          params.set('v', v);
+        }
+        search = params.toString();
+      }
       const sep = this.proxyEndpoint.includes('?') ? '&' : '?';
       const proxyUrl = search ? `${this.proxyEndpoint}${sep}${search}` : this.proxyEndpoint;
       return {
