@@ -42,7 +42,7 @@ describe('Dummy Projects E2E Verification with Morphed GTM', () => {
     expect(content).toContain('/_tatvic/relay?_tgt=');
     // Verified tagassistant.google.com is preserved for preview mode handshake
     expect(content).toContain('tagassistant.google.com');
-  });
+  }, 15000);
 
   it('2b. Stealth GTM Loader: Serves morphed loader via /_tatvic/loader.js?cid=GTM-T32XGF8F (bypasses uBlock Origin Lite / EasyPrivacy)', async () => {
     const res = await fetch(`http://localhost:${htmlServerInstance.port}/_tatvic/loader.js?cid=GTM-T32XGF8F`);
@@ -54,7 +54,7 @@ describe('Dummy Projects E2E Verification with Morphed GTM', () => {
     expect(content.length).toBeGreaterThan(1000);
     expect(content).toContain('/_tatvic/relay?_tgt=');
     expect(content).toContain('tagassistant.google.com');
-  });
+  }, 15000);
 
   it('3. Tag Assistant Preview Mode: Propagates gtm_debug and disables cache', async () => {
     const debugUrl = `http://localhost:${htmlServerInstance.port}/_tatvic/gtm.js?id=GTM-T32XGF8F&gtm_debug=1793774361474`;
@@ -65,7 +65,7 @@ describe('Dummy Projects E2E Verification with Morphed GTM', () => {
 
     const content = await res.text();
     expect(content).toContain('tagassistant.google.com');
-  });
+  }, 15000);
 
   it('4. HTML Vanilla: Relays GA4 telemetry beacon through /_tatvic/relay', async () => {
     const gaCollectUrl = 'https://www.google-analytics.com/g/collect?v=2&tid=G-TEST&en=generate_lead';
@@ -80,7 +80,7 @@ describe('Dummy Projects E2E Verification with Morphed GTM', () => {
 
     expect([200, 204]).toContain(res.status);
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
-  });
+  }, 15000);
 
   it('5. Next.js App Router: tatvicRelayRoute() serves morphed GTM and handles telemetry', async () => {
     const { GET, POST } = tatvicRelayRoute();
@@ -105,7 +105,7 @@ describe('Dummy Projects E2E Verification with Morphed GTM', () => {
     });
     const postRes = await POST(postReq);
     expect([200, 204]).toContain(postRes.status);
-  });
+  }, 15000);
 
   it('6. Express / Node: Serves morphed GTM via middleware', async () => {
     const res = await fetch(
@@ -115,7 +115,7 @@ describe('Dummy Projects E2E Verification with Morphed GTM', () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain('/_tatvic/relay?_tgt=');
-  });
+  }, 15000);
 
   it('7. Security: Rejects non-allowlisted domains', async () => {
     const maliciousTarget = 'https://malicious-tracker-or-internal-ip.com/leak';

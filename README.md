@@ -22,16 +22,20 @@ This SDK introduces a **Morphed First-Party GTM Loader** (`/_tatvic/gtm.js`):
    - Forwards them upstream so Google serves the workspace draft container.
    - Bypasses caching in debug mode (`Cache-Control: no-cache, no-store`).
    - Keeps `tagassistant.google.com` postMessage handshake intact so Tag Assistant connects instantly.
-4. **Bot & LLM Agent Detection (Core Web Vitals & Page Speed Booster):**
+4. **Bot & LLM Agent Detection & Auto-Attribution**:
    - Automatically detects AI crawlers (`GPTBot`, `ClaudeBot`, `PerplexityBot`, `Bytespider`), headless runners (`Lighthouse`, `Puppeteer`, `Playwright`), and Cloudflare Bot scores (`cf-bot-score <= 29`, `cf-verified-bot-category`).
    - For bots, tracking scripts return a minimal `200 OK` stub (~100 bytes) and telemetry hits return `204 No Content`.
    - Result: **0 KB of heavy tracking scripts executed for bots**, zero main-thread CPU time, drastically reduced Total Blocking Time (TBT), and pristine analytics.
+   - **Auto-Attribution**: Automatically appends `utm_source` (`llm_agent` / `bot`) and `utm_medium` (e.g. `openai`, `anthropic`, `gemini`, `perplexity`, `bytedance`) to `dataLayer` and proxy requests upon bot detection.
    - **Real-Time Console Logging**: Automatically logs `[Tatvic SDK] 🤖 Bot detected: <reason>` in DevTools and server logs, plus dispatches a `tatvic:bot-detected` DOM event.
-4. **Automatic PII (Personally Identifiable Information) Redaction:**
+5. **Automatic PII (Personally Identifiable Information) Redaction & dataLayer Protection**:
    - Detects email addresses (plain `@` and URL-encoded `%40`, with negative lookahead protecting image filenames like `.png`, `.jpg`, `.svg`) and 10-digit phone numbers across standard keys (`phone`, `mobile`, `mobile_no`, `phone_number`, `ep.phone`, etc.).
-   - If any parameter contains PII, its value is automatically replaced with `"NA"` for that specific parameter only.
-   - Works seamlessly across URL query parameters and request bodies (URL-encoded form data, GA4 multiline `text/plain`, and `application/json`).
+   - **Client-Side dataLayer Protection**: Automatically intercepts `window.dataLayer.push` and `gtag()` calls in-place, sanitizing raw email and phone parameters to `"NA"` before tags can read them.
+   - **Server Proxy Sanitization**: Automatically scrubs URL query parameters and request bodies (URL-encoded form data, GA4 multiline `text/plain`, and `application/json`) before forwarding upstream.
    - Preserves all legitimate metrics and events while eliminating privacy risks and GA4 Terms of Service violations.
+6. **Advanced Ad-Blocker Evasion (EasyPrivacy, Brave Shields & uBlock Origin)**:
+   - Neutralizes aggressive heuristic rules (such as `?v=2&tid=G-$~third-party`, `&gtm=*&tag_exp=`, and `&cx=c&gtm=`) through smart query parameter ordering and proxy-level unaliasing.
+   - Preserves sGTM server preview tokens (`x-gtm-server-preview`) and cookies for seamless debugging.
 
 ---
 
