@@ -261,8 +261,15 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         options.serverPreviewToken;
       if (serverPreviewToken) {
         upstreamHeaders.set('x-gtm-server-preview', serverPreviewToken);
-        if (!targetUrl.searchParams.has('_gtm_server_preview')) {
-          targetUrl.searchParams.set('_gtm_server_preview', serverPreviewToken);
+        // Ensure standard sGTM preview query parameter is present for Server Container debugger
+        targetUrl.searchParams.set('gtm_server_preview', serverPreviewToken);
+        targetUrl.searchParams.delete('_gtm_server_preview');
+
+        // Also ensure sGTM cookie is passed upstream
+        const existingCookie = upstreamHeaders.get('cookie') || '';
+        if (!existingCookie.includes('gtm_server_preview')) {
+          const sep = existingCookie ? '; ' : '';
+          upstreamHeaders.set('cookie', `${existingCookie}${sep}_gtm_server_preview=${encodeURIComponent(serverPreviewToken)}`);
         }
 
         // When debugging in preview mode, ensure GA4 collect requests have debug signals (_dbg=1, ep.debug_mode=true)
@@ -464,6 +471,26 @@ function unaliasParamsFromAdBlockers(searchParams: URLSearchParams): void {
     searchParams.delete('_v');
     searchParams.set('v', val);
   }
+  if (searchParams.has('_ep.analytics_storage')) {
+    const val = searchParams.get('_ep.analytics_storage')!;
+    searchParams.delete('_ep.analytics_storage');
+    searchParams.set('ep.analytics_storage', val);
+  }
+  if (searchParams.has('_event_name')) {
+    const val = searchParams.get('_event_name')!;
+    searchParams.delete('_event_name');
+    searchParams.set('event_name', val);
+  }
+  // Un-alias any sst params (_sst.gcsub -> sst.gcsub, _sst.sw_exp -> sst.sw_exp)
+  const sstKeys: string[] = [];
+  searchParams.forEach((_, k) => {
+    if (k.startsWith('_sst.')) sstKeys.push(k);
+  });
+  sstKeys.forEach((k) => {
+    const val = searchParams.get(k)!;
+    searchParams.delete(k);
+    searchParams.set(k.slice(1), val);
+  });
 }
 
 function matchesAllowlist(hostname: string, allowlist: (string | RegExp)[]): boolean {

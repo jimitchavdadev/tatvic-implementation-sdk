@@ -30,6 +30,7 @@ export class RequestInterceptor {
   private originalSendBeacon?: typeof navigator.sendBeacon;
   private originalScriptSrcDesc?: PropertyDescriptor;
   private originalImageSrcDesc?: PropertyDescriptor;
+  private originalDataLayerDesc?: PropertyDescriptor;
   private isBotDetected: boolean = false;
 
   constructor(options: ProxySdkOptions = {}) {
@@ -70,6 +71,7 @@ export class RequestInterceptor {
     this.patchSendBeacon();
     this.patchScriptElements();
     this.patchImageElements();
+    this.patchDataLayer();
 
     this.isInstalled = true;
     this.matcher.log('First-party request interceptor active.');
@@ -111,6 +113,19 @@ export class RequestInterceptor {
     if (this.originalImageSrcDesc && typeof HTMLImageElement !== 'undefined') {
       Object.defineProperty(HTMLImageElement.prototype, 'src', this.originalImageSrcDesc);
       this.originalImageSrcDesc = undefined;
+    }
+
+    const dataLayerKey = this.options.dataLayerName || 'dataLayer';
+    if (this.originalDataLayerDesc && typeof window !== 'undefined') {
+      try {
+        Object.defineProperty(window, dataLayerKey, this.originalDataLayerDesc);
+      } catch {}
+      this.originalDataLayerDesc = undefined;
+    }
+    if (typeof window !== 'undefined' && (window as any)[dataLayerKey]) {
+      try {
+        delete (window as any)[dataLayerKey].push;
+      } catch {}
     }
 
     this.isInstalled = false;
@@ -616,6 +631,100 @@ export class RequestInterceptor {
       configurable: true,
       enumerable: true,
     });
+  }
+
+  /**
+   * Patches window.dataLayer to automatically redact Personally Identifiable Information (PII)
+   * such as email addresses and phone numbers from all pushed objects and variables.
+   */
+  private patchDataLayer(): void {
+    if (typeof window === 'undefined' || !this.piiRedactor.isEnabled()) {
+      return;
+    }
+
+    const dataLayerKey = this.options.dataLayerName || 'dataLayer';
+    const piiRedactor = this.piiRedactor;
+    const matcher = this.matcher;
+
+    try {
+      this.originalDataLayerDesc = Object.getOwnPropertyDescriptor(window, dataLayerKey);
+    } catch {}
+
+    const patchArrayPush = (arr: any[]) => {
+      if (!arr || typeof arr !== 'object') return;
+
+      // 1. Redact any existing elements currently in dataLayer
+      for (let i = 0; i < arr.length; i++) {
+        arr[i] = piiRedactor.redactJsonObject(arr[i]);
+      }
+
+      // 2. Intercept arr.push via property getter/setter so subsequent assignments (by GTM or user) are preserved
+      // Uses a recursion guard (isSanitizing) so GTM internal push re-delegation never triggers a call stack overflow
+      let targetPush = typeof arr.push === 'function' ? arr.push.bind(arr) : Array.prototype.push.bind(arr);
+      let isSanitizing = false;
+
+      const wrapPush = (fn: Function) => {
+        return function (this: any, ...args: any[]) {
+          if (!isSanitizing) {
+            isSanitizing = true;
+            try {
+              for (let i = 0; i < args.length; i++) {
+                args[i] = piiRedactor.redactJsonObject(args[i]);
+              }
+              matcher.log(`Sanitized ${dataLayerKey}.push:`, args);
+            } finally {
+              isSanitizing = false;
+            }
+          }
+          return fn.apply(this === arr ? arr : this, args);
+        };
+      };
+
+      try {
+        Object.defineProperty(arr, 'push', {
+          get() {
+            return wrapPush(targetPush);
+          },
+          set(newPushFn: any) {
+            targetPush = typeof newPushFn === 'function' ? newPushFn : targetPush;
+          },
+          configurable: true,
+          enumerable: false,
+        });
+      } catch {
+        // Fallback to direct method wrapper
+        const prevPush = arr.push;
+        arr.push = wrapPush(prevPush);
+      }
+    };
+
+    let _dataLayer: any = (window as any)[dataLayerKey];
+    if (Array.isArray(_dataLayer)) {
+      patchArrayPush(_dataLayer);
+    } else if (_dataLayer === undefined) {
+      _dataLayer = [];
+      patchArrayPush(_dataLayer);
+    }
+
+    try {
+      Object.defineProperty(window, dataLayerKey, {
+        get() {
+          return _dataLayer;
+        },
+        set(newVal: any) {
+          if (Array.isArray(newVal)) {
+            patchArrayPush(newVal);
+          }
+          _dataLayer = newVal;
+        },
+        configurable: true,
+        enumerable: true,
+      });
+    } catch {
+      (window as any)[dataLayerKey] = _dataLayer;
+    }
+
+    matcher.log(`First-party dataLayer PII protection active on window.${dataLayerKey}`);
   }
 
   /**

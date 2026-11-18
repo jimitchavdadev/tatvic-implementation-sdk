@@ -46,6 +46,12 @@ export function sanitizeParamsForAdBlockers(params: URLSearchParams): URLSearchP
       sanitized.set('_cx', val);
     } else if (key === 'l' && (val === 'dataLayer' || val.includes('Layer'))) {
       sanitized.set('_l', val);
+    } else if (key.startsWith('sst.')) {
+      sanitized.set(`_${key}`, val);
+    } else if (key === 'ep.analytics_storage') {
+      sanitized.set('_ep.analytics_storage', val);
+    } else if (key === 'event_name') {
+      sanitized.set('_event_name', val);
     } else {
       sanitized.set(key, val);
     }

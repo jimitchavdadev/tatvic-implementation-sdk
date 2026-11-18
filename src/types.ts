@@ -88,6 +88,12 @@ export interface ProxySdkOptions {
   piiRedaction?: boolean | PiiRedactionOptions;
 
   /**
+   * The global dataLayer variable name to monitor and sanitize for PII.
+   * Default: "dataLayer"
+   */
+  dataLayerName?: string;
+
+  /**
    * Whether the interceptor is enabled.
    * Default: true
    */

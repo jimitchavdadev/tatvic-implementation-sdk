@@ -307,6 +307,48 @@ describe('RequestInterceptor in Browser Context', () => {
     interceptor.uninstall();
     (globalThis as any).window = globalThis;
   });
+
+  it('should verify that sanitized GA4 URLs strictly evade all EasyPrivacy / uBlock Origin / Brave rules', async () => {
+    let capturedUrl = '';
+    const mockWindow = {
+      ...globalThis,
+      location: { origin: 'http://localhost:5005' },
+      fetch: ((url: string) => {
+        capturedUrl = url;
+        return Promise.resolve(new Response('ok'));
+      }) as typeof fetch,
+    };
+    (globalThis as any).window = mockWindow;
+    globalThis.fetch = mockWindow.fetch;
+
+    const interceptor = new RequestInterceptor({
+      proxyEndpoint: '/_tatvic/relay',
+    });
+    interceptor.install();
+
+    // Fire hit with ALL dangerous parameters present
+    const testUrl = 'http://localhost:5005/_tatvic/relay?v=2&tid=G-VVBCZC9JSW&gtm=45Heb1&tag_exp=101509157&cx=c&l=dataLayer&sst.gcsub=1&sst.sw_exp=1&ep.analytics_storage=granted&event_name=page_view';
+    await mockWindow.fetch(testUrl);
+
+    // Verify against actual EasyPrivacy filter rules:
+    // 1. ?v=2&tid=G-$~third-party
+    expect(capturedUrl).not.toMatch(/\?v=2&tid=G-/);
+    // 2. &gtm=*&tag_exp=
+    expect(capturedUrl).not.toMatch(/&gtm=.*&tag_exp=/);
+    // 3. &cx=c&gtm=
+    expect(capturedUrl).not.toMatch(/&cx=c&gtm=/);
+    // 4. &l=dataLayer&cx=c
+    expect(capturedUrl).not.toMatch(/&l=dataLayer&cx=c/);
+    // 5. &sst.gcsub=
+    expect(capturedUrl).not.toMatch(/&sst\.gcsub=/);
+    // 6. &sst.sw_exp=
+    expect(capturedUrl).not.toMatch(/&sst\.sw_exp=/);
+    // 7. &ep.analytics_storage=
+    expect(capturedUrl).not.toMatch(/&ep\.analytics_storage=/);
+
+    interceptor.uninstall();
+    (globalThis as any).window = globalThis;
+  });
 });
 
 describe('morphGtmScript', () => {

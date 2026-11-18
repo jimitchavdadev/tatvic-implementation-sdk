@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   PiiRedactor,
   DEFAULT_EMAIL_REGEX,
   DEFAULT_PHONE_REGEX,
 } from '../src/pii-redactor.js';
 import { createProxyHandler } from '../src/server-proxy.js';
+import { RequestInterceptor } from '../src/interceptor.js';
 
 describe('PII Redactor - Email Detection & Redaction', () => {
   const redactor = new PiiRedactor();
@@ -170,5 +171,142 @@ describe('ServerProxy - PII Redaction Integration', () => {
     expect(redacted).toContain('email=%5BREDACTED%5D'); // encoded [REDACTED]
     expect(redacted).toContain('phone=%5BREDACTED%5D');
     expect(redacted).toContain('name=Sam');
+  });
+});
+
+describe('PII Redactor - window.dataLayer Integration', () => {
+  let mockWindow: any;
+
+  beforeEach(() => {
+    mockWindow = {
+      ...globalThis,
+      dataLayer: [],
+    };
+    (globalThis as any).window = mockWindow;
+  });
+
+  afterEach(() => {
+    delete (globalThis as any).window;
+  });
+
+  it('should redact email and phone PII when pushed to window.dataLayer', () => {
+    const interceptor = new RequestInterceptor({
+      piiRedaction: true,
+    });
+    interceptor.install();
+
+    mockWindow.dataLayer.push({
+      event: 'generate_lead',
+      user_email: 'john.doe@tatvic.com',
+      phone_number: '9876543210',
+      value: 100,
+    });
+
+    expect(mockWindow.dataLayer.length).toBe(1);
+    const item = mockWindow.dataLayer[0];
+    expect(item.event).toBe('generate_lead');
+    expect(item.user_email).toBe('NA');
+    expect(item.phone_number).toBe('NA');
+    expect(item.value).toBe(100);
+
+    interceptor.uninstall();
+  });
+
+  it('should redact nested objects pushed to window.dataLayer', () => {
+    const interceptor = new RequestInterceptor({
+      piiRedaction: true,
+    });
+    interceptor.install();
+
+    mockWindow.dataLayer.push({
+      event: 'sign_up',
+      profile: {
+        email: 'alice%40example.com',
+        phone: '9876543210',
+        role: 'admin',
+      },
+    });
+
+    const item = mockWindow.dataLayer[0];
+    expect(item.profile.email).toBe('NA');
+    expect(item.profile.phone).toBe('NA');
+    expect(item.profile.role).toBe('admin');
+
+    interceptor.uninstall();
+  });
+
+  it('should redact pre-existing items in dataLayer upon installation', () => {
+    mockWindow.dataLayer.push({
+      event: 'initial_load',
+      email: 'pre_existing@domain.com',
+      mobile: '9876543210',
+    });
+
+    const interceptor = new RequestInterceptor({
+      piiRedaction: true,
+    });
+    interceptor.install();
+
+    const item = mockWindow.dataLayer[0];
+    expect(item.email).toBe('NA');
+    expect(item.mobile).toBe('NA');
+
+    interceptor.uninstall();
+  });
+
+  it('should preserve GTM listener when GTM overwrites dataLayer.push', () => {
+    const interceptor = new RequestInterceptor({
+      piiRedaction: true,
+    });
+    interceptor.install();
+
+    const gtmReceivedEvents: any[] = [];
+    // Simulate GTM attaching its own push listener
+    mockWindow.dataLayer.push = function (eventObj: any) {
+      gtmReceivedEvents.push(eventObj);
+      return Array.prototype.push.call(mockWindow.dataLayer, eventObj);
+    };
+
+    mockWindow.dataLayer.push({
+      event: 'gtm_tag_trigger',
+      user_email: 'lead@tatvic.com',
+      phone_no: '9876543210',
+    });
+
+    // Verify GTM's listener received sanitized data
+    expect(gtmReceivedEvents.length).toBe(1);
+    expect(gtmReceivedEvents[0].user_email).toBe('NA');
+    expect(gtmReceivedEvents[0].phone_no).toBe('NA');
+
+    interceptor.uninstall();
+  });
+
+  it('should redact Arguments object when gtag() pushes to dataLayer', () => {
+    const interceptor = new RequestInterceptor({
+      piiRedaction: true,
+    });
+    interceptor.install();
+
+    function fakeGtag(...args: any[]) {
+      mockWindow.dataLayer.push((function () {
+        return arguments;
+      }).apply(null, args as any));
+    }
+
+    fakeGtag('event', 'purchase', {
+      customer_email: 'buyer@example.com',
+      contact_number: '+91 9876543210',
+      value: 299.99,
+    });
+
+    expect(mockWindow.dataLayer.length).toBe(1);
+    const pushedArgs = mockWindow.dataLayer[0];
+    expect(pushedArgs[0]).toBe('event');
+    expect(pushedArgs[1]).toBe('purchase');
+    expect(pushedArgs[2].customer_email).toBe('NA');
+    expect(pushedArgs[2].contact_number).toBe('NA');
+    expect(pushedArgs[2].value).toBe(299.99);
+
+    interceptor.uninstall();
   });
 });

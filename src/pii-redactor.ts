@@ -14,9 +14,10 @@ export const DEFAULT_PHONE_REGEX =
   /\b(?:mobile|mobileno|mobilenumber|mobile_number|phone|phone_number|mobile_no|phone_no)\b\s*[:=]\s*['"]?\d{10}['"]?/i;
 
 const PHONE_KEY_NAMES =
-  /^(?:ep\.|epn\.|up\.|user_)?(?:mobile|mobileno|mobilenumber|mobile_number|phone|phone_number|mobile_no|phone_no)$/i;
+  /^(?:ep\.|epn\.|up\.|user_|customer_)?(?:mobile|mobileno|mobilenumber|mobile_number|phone|phone_number|mobile_no|phone_no|contact_no|contact_number|telephone|tel)$/i;
 
-const TEN_DIGIT_PHONE_VAL = /^(\+?\d{1,3}[- ]?)?['"]?\d{10}['"]?$/;
+const TEN_DIGIT_PHONE_VAL =
+  /^(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$/;
 
 /**
  * PiiRedactor
@@ -219,23 +220,35 @@ export class PiiRedactor {
     return modified ? redactedLines.join('\n') : body;
   }
 
-  private redactJsonObject(obj: any): any {
+  public redactJsonObject(obj: any): any {
     if (obj === null || obj === undefined) return obj;
     if (Array.isArray(obj)) {
       return obj.map((item) => this.redactJsonObject(item));
     }
+    const isArguments =
+      typeof obj === 'object' &&
+      (Object.prototype.toString.call(obj) === '[object Arguments]' ||
+        (typeof obj.length === 'number' && typeof obj.callee === 'function'));
+    if (isArguments) {
+      for (let i = 0; i < obj.length; i++) {
+        obj[i] = this.redactJsonObject(obj[i]);
+      }
+      return obj;
+    }
     if (typeof obj === 'object') {
-      const result: Record<string, any> = {};
       for (const [k, v] of Object.entries(obj)) {
         if (typeof v === 'object' && v !== null) {
-          result[k] = this.redactJsonObject(v);
+          obj[k] = this.redactJsonObject(v);
         } else if (this.hasPii(k, v)) {
-          result[k] = this.replacement;
-        } else {
-          result[k] = v;
+          obj[k] = this.replacement;
         }
       }
-      return result;
+      return obj;
+    }
+    if (typeof obj === 'string') {
+      if (this.hasPii('value', obj)) {
+        return this.replacement;
+      }
     }
     return obj;
   }
