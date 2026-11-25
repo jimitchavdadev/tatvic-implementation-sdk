@@ -393,3 +393,32 @@ describe('morphGtmScript', () => {
     expect(matcher.shouldProxy('https://tagassistant.google.com/')).toBe(false);
   });
 });
+
+describe('CommonJS (CJS) Artifacts & Exports', () => {
+  it('should export all public APIs in dist/index.cjs via require()', () => {
+    // Dynamic require test
+    const sdkCjs = require('../dist/index.cjs');
+    expect(typeof sdkCjs.createProxyHandler).toBe('function');
+    expect(typeof sdkCjs.RequestInterceptor).toBe('function');
+    expect(typeof sdkCjs.UrlMatcher).toBe('function');
+    expect(typeof sdkCjs.PiiRedactor).toBe('function');
+    expect(typeof sdkCjs.isServerBot).toBe('function');
+    expect(typeof sdkCjs.isClientBot).toBe('function');
+    expect(typeof sdkCjs.morphGtmScript).toBe('function');
+  });
+
+  it('should export Express middleware in dist/express.cjs via require()', () => {
+    const expressCjs = require('../dist/express.cjs');
+    expect(typeof expressCjs.tatvicExpressMiddleware).toBe('function');
+  });
+
+  it('should export Next.js route in dist/next.cjs via require()', () => {
+    const nextCjs = require('../dist/next.cjs');
+    expect(typeof nextCjs.tatvicRelayRoute).toBe('function');
+  });
+
+  it('should export React wrapper in dist/react.cjs via require()', () => {
+    const reactCjs = require('../dist/react.cjs');
+    expect(typeof reactCjs.TatvicWrapper).toBe('function');
+  });
+});

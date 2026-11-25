@@ -2,7 +2,7 @@
   "name": "tatvic-implementation-sdk",
   "version": "1.3.2",
   "description": "Universal First-Party Analytics Proxy & Morphed GTM Loader SDK with Bot/LLM Agent Detection and PII Redaction for Web, React, Next.js, and Node",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
@@ -13,27 +13,34 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     },
     "./react": {
       "types": "./dist/react.d.ts",
-      "import": "./dist/react.js"
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
     },
     "./next": {
       "types": "./dist/next.d.ts",
-      "import": "./dist/next.js"
+      "import": "./dist/next.js",
+      "require": "./dist/next.cjs"
     },
     "./express": {
       "types": "./dist/express.d.ts",
-      "import": "./dist/express.js"
+      "import": "./dist/express.js",
+      "require": "./dist/express.cjs"
     }
   },
   "scripts": {
     "build:bundle": "bun build src/bundle.ts --target=browser --format=iife --outfile=dist/tatvic.js --minify",
     "build:esm": "bun build src/index.ts --target=browser --format=esm --outfile=dist/index.js",
-    "build:subpaths": "bun build src/react.tsx --target=browser --format=esm --outfile=dist/react.js --external react && bun build src/next.ts --target=browser --format=esm --outfile=dist/next.js && bun build src/express.ts --target=browser --format=esm --outfile=dist/express.js",
+    "build:cjs": "bun build src/index.ts --target=node --format=cjs --outfile=dist/index.cjs",
+    "build:subpaths:esm": "bun build src/react.tsx --target=browser --format=esm --outfile=dist/react.js --external react && bun build src/next.ts --target=browser --format=esm --outfile=dist/next.js && bun build src/express.ts --target=browser --format=esm --outfile=dist/express.js",
+    "build:subpaths:cjs": "bun build src/react.tsx --target=node --format=cjs --outfile=dist/react.cjs --external react && bun build src/next.ts --target=node --format=cjs --outfile=dist/next.cjs && bun build src/express.ts --target=node --format=cjs --outfile=dist/express.cjs",
+    "build:subpaths": "bun run build:subpaths:esm && bun run build:subpaths:cjs",
     "build:types": "bun x tsc -p tsconfig.build.json",
-    "build": "bun run build:bundle && bun run build:esm && bun run build:subpaths && bun run build:types",
+    "build": "bun run build:bundle && bun run build:esm && bun run build:cjs && bun run build:subpaths && bun run build:types",
     "prepublishOnly": "bun run test && bun run build",
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit"
