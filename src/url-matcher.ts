@@ -46,6 +46,13 @@ export function sanitizeParamsForAdBlockers(params: URLSearchParams): URLSearchP
       sanitized.set('_cx', val);
     } else if (key === 'l' && (val === 'dataLayer' || val.includes('Layer'))) {
       sanitized.set('_l', val);
+    } else if (key === 'id') {
+      // Alias 'id' with container prefixes to '_id' to evade EasyPrivacy '&id=GTM-', '&id=G-', '&id=UA-' rules
+      if (/^(GTM|G|UA|AW|DC)-/i.test(val)) {
+        sanitized.set('_id', val);
+      } else {
+        sanitized.set('id', val);
+      }
     } else if (key.startsWith('sst.')) {
       sanitized.set(`_${key}`, val);
     } else if (key === 'ep.analytics_storage') {

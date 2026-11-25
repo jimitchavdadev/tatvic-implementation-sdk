@@ -1,4 +1,4 @@
-import type { ServerProxyOptions } from './types.js';
+import type { ServerProxyOptions, BotDetectionResult } from './types.js';
 import { DEFAULT_TARGET_DOMAINS, DEFAULT_HEADER_NAME, DEFAULT_PROXY_ENDPOINT } from './defaults.js';
 import { morphGtmScript } from './morph-gtm.js';
 import { isServerBot, getBypassedScriptResponse } from './bot-detector.js';
@@ -56,42 +56,13 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         reqUrl.searchParams.has('_gtm_server_preview');
 
       // Bot & LLM Agent Detection: If request is from an automated agent, crawler, or scraper,
-      // bypass tracking scripts to improve page speed and protect analytics data.
-      if (!isPreviewMode) {
-        const botCheck = isServerBot(request, options.botDetection);
-        if (botCheck.isBot) {
-          if (typeof console !== 'undefined' && console.info) {
-            console.info(
-              `[Tatvic Proxy] 🤖 Bot/LLM Agent detected: ${botCheck.reason}. Analytics request bypassed.`
-            );
-          }
-
-          const pathname = reqUrl.pathname;
-          const isScriptRequest =
-            pathname.endsWith('.js') ||
-            pathname.endsWith('/loader') ||
-            pathname.includes('/_tatvic/loader') ||
-            pathname.includes('/_tatvic/gtm') ||
-            pathname.includes('/_tatvic/core');
-
-          if (isScriptRequest) {
-            return getBypassedScriptResponse(botCheck.reason, botCheck.utm);
-          }
-
-          // For telemetry / tracking beacon hits: Return 204 No Content with auto-appended bot attribution headers (source & medium)
-          const utm = botCheck.utm;
-          return new Response(null, {
-            status: 204,
-            headers: {
-              'X-Tatvic-Bot-Bypass': 'true',
-              'X-Tatvic-Bot-Reason': botCheck.reason ?? 'Automated bot traffic',
-              'X-Tatvic-Bot-Source': utm?.utm_source ?? 'bot',
-              'X-Tatvic-Bot-Medium': utm?.utm_medium ?? 'automated_agent',
-              'Access-Control-Allow-Origin': '*',
-              'Access-Control-Expose-Headers':
-                'X-Tatvic-Bot-Bypass, X-Tatvic-Bot-Reason, X-Tatvic-Bot-Source, X-Tatvic-Bot-Medium',
-            },
-          });
+      // attribute with standardized UTM parameters (source & medium) without blocking views or telemetry.
+      const botCheck = !isPreviewMode ? isServerBot(request, options.botDetection) : { isBot: false };
+      if (botCheck.isBot && botCheck.utm) {
+        if (typeof console !== 'undefined' && console.info) {
+          console.info(
+            `[Tatvic Proxy] 🤖 Bot/LLM Agent detected: ${botCheck.reason}. Attributing with utm_source=${botCheck.utm.utm_source}, utm_medium=${botCheck.utm.utm_medium}.`
+          );
         }
       }
 
@@ -104,13 +75,22 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         pathname.endsWith('/loader') ||
         pathname.includes('/_tatvic/loader.js') ||
         pathname.includes('/_tatvic/gtm.js') ||
-        pathname.includes('/_tatvic/core.js')
+        pathname.includes('/_tatvic/core.js') ||
+        ((pathname.includes('/relay') || pathname.includes('/_tatvic/relay')) &&
+          (reqUrl.searchParams.has('cid') ||
+            reqUrl.searchParams.has('_id') ||
+            (reqUrl.searchParams.has('id') && /^(GTM|G)-/i.test(reqUrl.searchParams.get('id')!))) &&
+          !reqUrl.searchParams.has('tid') &&
+          !reqUrl.searchParams.has('en'))
       ) {
-        return handleMorphedGtmRequest(request, reqUrl);
+        return handleMorphedGtmRequest(request, reqUrl, botCheck);
       }
 
       // 1. Extract target URL from header or query parameter
-      let targetUrlStr: string | null = request.headers.get(headerName);
+      let targetUrlStr: string | null =
+        request.headers.get(headerName) ||
+        request.headers.get('x-tatvic-target') ||
+        request.headers.get('x-relay-target');
 
       if (!targetUrlStr) {
         targetUrlStr = reqUrl.searchParams.get('_tgt');
@@ -198,6 +178,38 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
 
       // Un-alias query parameters back to their standard names before forwarding to upstream services/sGTM
       unaliasParamsFromAdBlockers(targetUrl.searchParams);
+
+      // Bot & LLM Agent Attribution: Append UTM parameters (utm_source / utm_medium)
+      // to the target URL search parameters so GA4 / sGTM records the bot session correctly.
+      const botUtmSource =
+        botCheck.utm?.utm_source ||
+        request.headers.get('x-tatvic-bot-source') ||
+        reqUrl.searchParams.get('utm_source');
+      const botUtmMedium =
+        botCheck.utm?.utm_medium ||
+        request.headers.get('x-tatvic-bot-medium') ||
+        reqUrl.searchParams.get('utm_medium');
+
+      if (botCheck.isBot || botUtmSource || botUtmMedium) {
+        const source = botUtmSource || 'bot';
+        const medium = botUtmMedium || 'agent';
+
+        if (!targetUrl.searchParams.has('cs')) {
+          targetUrl.searchParams.set('cs', source);
+        }
+        if (!targetUrl.searchParams.has('cm')) {
+          targetUrl.searchParams.set('cm', medium);
+        }
+        if (!targetUrl.searchParams.has('ep.utm_source')) {
+          targetUrl.searchParams.set('ep.utm_source', source);
+        }
+        if (!targetUrl.searchParams.has('ep.utm_medium')) {
+          targetUrl.searchParams.set('ep.utm_medium', medium);
+        }
+        if (!targetUrl.searchParams.has('ep.bot_detected')) {
+          targetUrl.searchParams.set('ep.bot_detected', 'true');
+        }
+      }
 
       // PII Redaction: Replace email and phone values with "NA" in query parameters
       if (piiRedactor.isEnabled()) {
@@ -296,6 +308,14 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         upstreamHeaders.set('x-forwarded-for', clientIp);
       }
 
+      // Forward Bot UTM headers upstream if detected
+      if (botCheck.isBot || botUtmSource || botUtmMedium) {
+        const source = botUtmSource || 'bot';
+        const medium = botUtmMedium || 'agent';
+        upstreamHeaders.set('X-Tatvic-Bot-Source', source);
+        upstreamHeaders.set('X-Tatvic-Bot-Medium', medium);
+      }
+
       // 6. Forward the request to the upstream target
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -355,6 +375,19 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
         `*, ${headerName}`
       );
 
+      // Attach Bot attribution headers to client response
+      if (botCheck.isBot || botUtmSource || botUtmMedium) {
+        const source = botUtmSource || 'bot';
+        const medium = botUtmMedium || 'agent';
+        responseHeaders.set('X-Tatvic-Bot-Detected', 'true');
+        responseHeaders.set('X-Tatvic-Bot-Source', source);
+        responseHeaders.set('X-Tatvic-Bot-Medium', medium);
+        responseHeaders.set(
+          'Access-Control-Expose-Headers',
+          `*, ${headerName}, X-Tatvic-Bot-Detected, X-Tatvic-Bot-Source, X-Tatvic-Bot-Medium`
+        );
+      }
+
       return new Response(upstreamResponse.body, {
         status: upstreamResponse.status,
         statusText: upstreamResponse.statusText,
@@ -373,12 +406,17 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
     }
   };
 
-  async function handleMorphedGtmRequest(request: Request, reqUrl: URL): Promise<Response> {
-    // Support stealth query parameter 'cid', 'container', 'tag' to bypass ad blocker '.js?id=GTM-' rules, as well as classic 'id'
+  async function handleMorphedGtmRequest(
+    request: Request,
+    reqUrl: URL,
+    botCheck?: BotDetectionResult
+  ): Promise<Response> {
+    // Support stealth query parameter 'cid', 'container', 'tag', '_id' to bypass ad blocker '.js?id=GTM-' rules, as well as classic 'id'
     const containerId =
       reqUrl.searchParams.get('cid') ||
       reqUrl.searchParams.get('container') ||
       reqUrl.searchParams.get('tag') ||
+      reqUrl.searchParams.get('_id') ||
       reqUrl.searchParams.get('id');
 
     if (!containerId || !/^[A-Z0-9-_]+$/i.test(containerId)) {
@@ -396,7 +434,7 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
     upstreamUrl.searchParams.set('id', containerId);
 
     reqUrl.searchParams.forEach((val, key) => {
-      if (key === 'cid' || key === 'container' || key === 'tag' || key === 'id' || key === '_type') return;
+      if (key === 'cid' || key === 'container' || key === 'tag' || key === 'id' || key === '_id' || key === '_type') return;
       if (key === '_cx') {
         upstreamUrl.searchParams.set('cx', val);
       } else if (key === '_gtm') {
@@ -429,16 +467,43 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       const morphedCode = morphGtmScript(rawCode, relayEndpoint);
       const isDebug = reqUrl.searchParams.has('gtm_debug');
 
-      return new Response(morphedCode, {
+      let finalCode = morphedCode;
+      if (botCheck?.isBot && botCheck.utm) {
+        const botInjection = `/* [Tatvic SDK] 🤖 Bot detected: ${(botCheck.reason || 'Automated agent').replace(/[\r\n"']/g, ' ')} */
+if (typeof window !== 'undefined') {
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    event: 'bot_detected',
+    utm_source: '${botCheck.utm.utm_source}',
+    utm_medium: '${botCheck.utm.utm_medium}',
+    bot_reason: '${(botCheck.reason || '').replace(/[\r\n"']/g, ' ')}'
+  });
+}
+`;
+        finalCode = botInjection + morphedCode;
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/javascript; charset=UTF-8',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Cache-Control': isDebug
+          ? 'no-cache, no-store, must-revalidate'
+          : 'public, max-age=900',
+      };
+
+      if (botCheck?.isBot && botCheck.utm) {
+        headers['X-Tatvic-Bot-Detected'] = 'true';
+        headers['X-Tatvic-Bot-Source'] = botCheck.utm.utm_source;
+        headers['X-Tatvic-Bot-Medium'] = botCheck.utm.utm_medium;
+        headers['X-Tatvic-Bot-Reason'] = botCheck.reason ?? 'Automated agent';
+        headers['Access-Control-Expose-Headers'] =
+          'X-Tatvic-Bot-Detected, X-Tatvic-Bot-Source, X-Tatvic-Bot-Medium, X-Tatvic-Bot-Reason';
+      }
+
+      return new Response(finalCode, {
         status: 200,
-        headers: {
-          'Content-Type': 'application/javascript; charset=UTF-8',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Cache-Control': isDebug
-            ? 'no-cache, no-store, must-revalidate'
-            : 'public, max-age=900',
-        },
+        headers,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch upstream GTM';
@@ -451,6 +516,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
 }
 
 function unaliasParamsFromAdBlockers(searchParams: URLSearchParams): void {
+  if (searchParams.has('_id')) {
+    const val = searchParams.get('_id')!;
+    searchParams.delete('_id');
+    searchParams.set('id', val);
+  }
   if (searchParams.has('_gtm')) {
     const val = searchParams.get('_gtm')!;
     searchParams.delete('_gtm');

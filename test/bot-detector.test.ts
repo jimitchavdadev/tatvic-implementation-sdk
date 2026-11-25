@@ -132,10 +132,10 @@ describe('Bot & LLM Agent Detection: Server-Side', () => {
   });
 });
 
-describe('Bot & LLM Agent Detection: Server Proxy Bypass Behavior', () => {
+describe('Bot & LLM Agent Detection: Server Proxy Non-Blocking Attribution Behavior', () => {
   const handler = createProxyHandler();
 
-  it('should return empty script stub with 200 OK for bot script requests', async () => {
+  it('should serve morphed GTM script with injected bot dataLayer push and UTM headers for bot script requests', async () => {
     const req = new Request('http://localhost:5000/_tatvic/loader.js?cid=GTM-T32XGF8F', {
       headers: {
         'user-agent': 'GPTBot/1.0',
@@ -145,29 +145,37 @@ describe('Bot & LLM Agent Detection: Server Proxy Bypass Behavior', () => {
     const res = await handler(req);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/javascript');
-    expect(res.headers.get('x-tatvic-bot-bypass')).toBe('true');
+    expect(res.headers.get('x-tatvic-bot-detected')).toBe('true');
+    expect(res.headers.get('x-tatvic-bot-source')).toBe('gpt');
+    expect(res.headers.get('x-tatvic-bot-medium')).toBe('crawler');
 
     const text = await res.text();
-    expect(text).toContain('Automated agent detected');
-    expect(text).toContain('script loading bypassed');
+    expect(text).toContain('bot_detected');
+    expect(text).toContain("utm_source: 'gpt'");
+    expect(text).toContain("utm_medium: 'crawler'");
+    // View is not blocked; full morphed container script is served
+    expect(text).toContain('/_tatvic/relay?_tgt=');
   });
 
-  it('should return 204 No Content for bot telemetry relay requests', async () => {
+  it('should forward bot telemetry relay requests upstream with appended UTM parameters without blocking views', async () => {
     const req = new Request('http://localhost:5000/_tatvic/relay', {
       method: 'POST',
       headers: {
         'user-agent': 'Bytespider',
-        'x-relay-target': 'https://www.google-analytics.com/g/collect?v=2',
+        'x-relay-target': 'https://www.google-analytics.com/g/collect?v=2&tid=G-TEST&cid=123.456',
       },
       body: 'en=page_view',
     });
 
     const res = await handler(req);
-    expect(res.status).toBe(204);
-    expect(res.headers.get('x-tatvic-bot-bypass')).toBe('true');
+    // Request is forwarded upstream (not dropped with 204 stub)
+    expect([200, 204]).toContain(res.status);
+    expect(res.headers.get('x-tatvic-bot-detected')).toBe('true');
+    expect(res.headers.get('x-tatvic-bot-source')).toBe('bytedance');
+    expect(res.headers.get('x-tatvic-bot-medium')).toBe('crawler');
   });
 
-  it('should NOT bypass when in Tag Assistant preview or debug mode', async () => {
+  it('should NOT flag as bot when in Tag Assistant preview or debug mode', async () => {
     const req = new Request('http://localhost:5000/_tatvic/loader.js?cid=GTM-T32XGF8F&gtm_debug=1', {
       headers: {
         // Even if user-agent says Lighthouse or bot, debug flag takes priority
@@ -176,8 +184,7 @@ describe('Bot & LLM Agent Detection: Server Proxy Bypass Behavior', () => {
     });
 
     const res = await handler(req);
-    // Should proceed to fetch and morph GTM rather than returning the bot bypass stub
-    expect(res.headers.get('x-tatvic-bot-bypass')).toBeNull();
+    expect(res.headers.get('x-tatvic-bot-detected')).toBeNull();
   });
 });
 
@@ -212,7 +219,7 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
     delete (globalThis as unknown as { __playwright__binding__?: boolean }).__playwright__binding__;
   });
 
-  it('should suppress outgoing fetch telemetry when bot is detected in RequestInterceptor', async () => {
+  it('should NOT suppress outgoing fetch telemetry when bot is detected, but append UTM parameters', async () => {
     let warnMsg = '';
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => {
@@ -227,6 +234,15 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
       writable: true,
     });
 
+    let interceptedUrl = '';
+    let interceptedHeaders: Headers | undefined;
+    const mockOriginalFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      interceptedUrl = typeof input === 'string' ? input : (input as Request).url;
+      interceptedHeaders = new Headers(init?.headers);
+      return new Response('OK', { status: 200 });
+    };
+    (globalThis as any).fetch = mockOriginalFetch;
+
     const interceptor = new RequestInterceptor({
       proxyEndpoint: '/_tatvic/relay',
       targetDomains: ['google-analytics.com'],
@@ -234,77 +250,159 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
     interceptor.install();
 
     expect(warnMsg).toContain('Bot detected');
-    expect(warnMsg).toContain('muting outgoing analytics telemetry');
+    expect(warnMsg).toContain('Attributing telemetry');
 
     // Call fetch to targeted domain
-    const res = await fetch('https://www.google-analytics.com/g/collect?v=2');
-    expect(res.status).toBe(204);
-    expect(res.headers.get('x-tatvic-bot-bypass')).toBe('true');
+    const res = await (globalThis as any).fetch('https://www.google-analytics.com/g/collect?v=2');
+    expect(res.status).toBe(200);
+    // Verified that URL carried bot attribution parameters
+    expect(interceptedUrl).toContain('cs=headless_browser');
+    expect(interceptedUrl).toContain('cm=automation');
+    expect(interceptedHeaders?.get('x-tatvic-bot-source')).toBe('headless_browser');
+    expect(interceptedHeaders?.get('x-tatvic-bot-medium')).toBe('automation');
 
     interceptor.uninstall();
     console.warn = originalWarn;
   });
 
-  it('should auto-append UTM parameters (source=llm_agent, medium=openai/anthropic/gemini) upon bot detection', () => {
-    // 1. OpenAI (GPTBot)
+  it('should auto-append UTM parameters (source e.g. gpt/gemini, medium e.g. assistant/agent/crawler) upon bot detection', () => {
+    // 1. OpenAI (GPTBot -> gpt / crawler)
     const gptReq = new Request('https://example.com/_tatvic/loader.js', {
       headers: { 'user-agent': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)' },
     });
     const gptRes = isServerBot(gptReq);
     expect(gptRes.isBot).toBe(true);
     expect(gptRes.utm).toBeDefined();
-    expect(gptRes.utm!.utm_source).toBe('llm_agent');
-    expect(gptRes.utm!.utm_medium).toBe('openai');
+    expect(gptRes.utm!.utm_source).toBe('gpt');
+    expect(gptRes.utm!.utm_medium).toBe('crawler');
 
-    // 2. Anthropic (ClaudeBot)
+    // 1b. OpenAI (ChatGPT-User -> gpt / assistant)
+    const chatGptUserReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)' },
+    });
+    const chatGptUserRes = isServerBot(chatGptUserReq);
+    expect(chatGptUserRes.utm!.utm_source).toBe('gpt');
+    expect(chatGptUserRes.utm!.utm_medium).toBe('assistant');
+
+    // 1c. OpenAI (OAI-SearchBot -> gpt / agent)
+    const oaiSearchReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'OAI-SearchBot/1.0' },
+    });
+    const oaiSearchRes = isServerBot(oaiSearchReq);
+    expect(oaiSearchRes.utm!.utm_source).toBe('gpt');
+    expect(oaiSearchRes.utm!.utm_medium).toBe('agent');
+
+    // 2. Anthropic (ClaudeBot -> claude / crawler)
     const claudeReq = new Request('https://example.com/_tatvic/loader.js', {
       headers: { 'user-agent': 'Mozilla/5.0 ClaudeBot/1.0; +claudebot@anthropic.com' },
     });
     const claudeRes = isServerBot(claudeReq);
     expect(claudeRes.isBot).toBe(true);
-    expect(claudeRes.utm!.utm_source).toBe('llm_agent');
-    expect(claudeRes.utm!.utm_medium).toBe('anthropic');
+    expect(claudeRes.utm!.utm_source).toBe('claude');
+    expect(claudeRes.utm!.utm_medium).toBe('crawler');
 
-    // 3. Google Gemini
+    // 2b. Anthropic (Claude-User -> claude / assistant)
+    const claudeUserReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Claude-User/1.0' },
+    });
+    expect(isServerBot(claudeUserReq).utm!.utm_source).toBe('claude');
+    expect(isServerBot(claudeUserReq).utm!.utm_medium).toBe('assistant');
+
+    // 2c. Anthropic (Claude-SearchBot -> claude / agent)
+    const claudeSearchReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Claude-SearchBot/1.0' },
+    });
+    expect(isServerBot(claudeSearchReq).utm!.utm_source).toBe('claude');
+    expect(isServerBot(claudeSearchReq).utm!.utm_medium).toBe('agent');
+
+    // 3. Google Gemini (Google-Extended -> gemini / crawler)
     const geminiReq = new Request('https://example.com/_tatvic/loader.js', {
       headers: { 'user-agent': 'Google-Extended/1.0 (Gemini training bot)' },
     });
     const geminiRes = isServerBot(geminiReq);
     expect(geminiRes.isBot).toBe(true);
-    expect(geminiRes.utm!.utm_source).toBe('llm_agent');
-    expect(geminiRes.utm!.utm_medium).toBe('gemini');
+    expect(geminiRes.utm!.utm_source).toBe('gemini');
+    expect(geminiRes.utm!.utm_medium).toBe('crawler');
 
-    // 4. Perplexity
+    // 3b. Google Gemini (Gemini assistant -> gemini / assistant)
+    const geminiAssistantReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; Gemini/2.0; +https://google.com)' },
+    });
+    expect(isServerBot(geminiAssistantReq).utm!.utm_source).toBe('gemini');
+    expect(isServerBot(geminiAssistantReq).utm!.utm_medium).toBe('assistant');
+
+    // 4. Perplexity (PerplexityBot -> perplexity / agent)
     const perplexityReq = new Request('https://example.com/_tatvic/loader.js', {
       headers: { 'user-agent': 'PerplexityBot/1.0' },
     });
     const perplexityRes = isServerBot(perplexityReq);
     expect(perplexityRes.isBot).toBe(true);
-    expect(perplexityRes.utm!.utm_source).toBe('llm_agent');
-    expect(perplexityRes.utm!.utm_medium).toBe('perplexity');
+    expect(perplexityRes.utm!.utm_source).toBe('perplexity');
+    expect(perplexityRes.utm!.utm_medium).toBe('agent');
 
-    // 5. ByteDance
+    // 4b. Perplexity (Perplexity-User -> perplexity / assistant)
+    const perplexityUserReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Perplexity-User/1.0' },
+    });
+    expect(isServerBot(perplexityUserReq).utm!.utm_source).toBe('perplexity');
+    expect(isServerBot(perplexityUserReq).utm!.utm_medium).toBe('assistant');
+
+    // 5. ByteDance (Bytespider -> bytedance / crawler)
     const byteReq = new Request('https://example.com/_tatvic/loader.js', {
       headers: { 'user-agent': 'Bytespider' },
     });
     const byteRes = isServerBot(byteReq);
     expect(byteRes.isBot).toBe(true);
-    expect(byteRes.utm!.utm_source).toBe('llm_agent');
-    expect(byteRes.utm!.utm_medium).toBe('bytedance');
+    expect(byteRes.utm!.utm_source).toBe('bytedance');
+    expect(byteRes.utm!.utm_medium).toBe('crawler');
+
+    // 6. Meta AI (Meta-ExternalFetcher -> meta / agent, FacebookBot -> meta / crawler)
+    const metaFetcherReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Meta-ExternalFetcher/1.0' },
+    });
+    expect(isServerBot(metaFetcherReq).utm!.utm_source).toBe('meta');
+    expect(isServerBot(metaFetcherReq).utm!.utm_medium).toBe('agent');
+
+    const metaCrawlerReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'FacebookBot/1.0' },
+    });
+    expect(isServerBot(metaCrawlerReq).utm!.utm_source).toBe('meta');
+    expect(isServerBot(metaCrawlerReq).utm!.utm_medium).toBe('crawler');
+
+    // 7. DeepSeek (DeepSeekBot -> deepseek / crawler)
+    const deepseekReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'DeepSeekBot/1.0' },
+    });
+    expect(isServerBot(deepseekReq).utm!.utm_source).toBe('deepseek');
+    expect(isServerBot(deepseekReq).utm!.utm_medium).toBe('crawler');
+
+    // 8. Lighthouse -> lighthouse / audit
+    const lighthouseReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'Chrome-Lighthouse' },
+    });
+    expect(isServerBot(lighthouseReq).utm!.utm_source).toBe('lighthouse');
+    expect(isServerBot(lighthouseReq).utm!.utm_medium).toBe('audit');
+
+    // 9. Scraper (curl -> curl / scraper)
+    const curlReq = new Request('https://example.com/_tatvic/loader.js', {
+      headers: { 'user-agent': 'curl/8.4.0' },
+    });
+    expect(isServerBot(curlReq).utm!.utm_source).toBe('curl');
+    expect(isServerBot(curlReq).utm!.utm_medium).toBe('scraper');
   });
 
   it('should include UTM headers and dataLayer push script in getBypassedScriptResponse', async () => {
     const res = getBypassedScriptResponse('AI Agent / LLM Crawler detected (GPTBot)', {
-      utm_source: 'llm_agent',
-      utm_medium: 'openai',
+      utm_source: 'gpt',
+      utm_medium: 'crawler',
     });
     expect(res.headers.get('x-tatvic-bot-bypass')).toBe('true');
-    expect(res.headers.get('x-tatvic-bot-source')).toBe('llm_agent');
-    expect(res.headers.get('x-tatvic-bot-medium')).toBe('openai');
+    expect(res.headers.get('x-tatvic-bot-source')).toBe('gpt');
+    expect(res.headers.get('x-tatvic-bot-medium')).toBe('crawler');
 
     const text = await res.text();
-    expect(text).toContain("utm_source: 'llm_agent'");
-    expect(text).toContain("utm_medium: 'openai'");
+    expect(text).toContain("utm_source: 'gpt'");
+    expect(text).toContain("utm_medium: 'crawler'");
     expect(text).toContain("event: 'bot_detected'");
   });
 });

@@ -327,7 +327,7 @@ describe('RequestInterceptor in Browser Context', () => {
     interceptor.install();
 
     // Fire hit with ALL dangerous parameters present
-    const testUrl = 'http://localhost:5005/_tatvic/relay?v=2&tid=G-VVBCZC9JSW&gtm=45Heb1&tag_exp=101509157&cx=c&l=dataLayer&sst.gcsub=1&sst.sw_exp=1&ep.analytics_storage=granted&event_name=page_view';
+    const testUrl = 'http://localhost:5005/_tatvic/relay?v=2&tid=G-VVBCZC9JSW&id=GTM-T32XGF8F&gtm=45Heb1&tag_exp=101509157&cx=c&l=dataLayer&sst.gcsub=1&sst.sw_exp=1&ep.analytics_storage=granted&event_name=page_view';
     await mockWindow.fetch(testUrl);
 
     // Verify against actual EasyPrivacy filter rules:
@@ -345,6 +345,9 @@ describe('RequestInterceptor in Browser Context', () => {
     expect(capturedUrl).not.toMatch(/&sst\.sw_exp=/);
     // 7. &ep.analytics_storage=
     expect(capturedUrl).not.toMatch(/&ep\.analytics_storage=/);
+    // 8. ?id=GTM- and &id=GTM- (aliased to _id)
+    expect(capturedUrl).not.toMatch(/[?&]id=GTM-/);
+    expect(capturedUrl).toContain('_id=GTM-T32XGF8F');
 
     interceptor.uninstall();
     (globalThis as any).window = globalThis;

@@ -1,4 +1,4 @@
-import type { ProxySdkOptions } from './types.js';
+import type { ProxySdkOptions, BotUtmParams } from './types.js';
 import { UrlMatcher } from './url-matcher.js';
 import { isClientBot } from './bot-detector.js';
 import { PiiRedactor } from './pii-redactor.js';
@@ -10,6 +10,7 @@ interface TatvicXhrMetadata {
   headerName?: string;
   headerValue?: string;
   previewToken?: string;
+  botUtm?: BotUtmParams;
 }
 
 declare global {
@@ -32,6 +33,8 @@ export class RequestInterceptor {
   private originalImageSrcDesc?: PropertyDescriptor;
   private originalDataLayerDesc?: PropertyDescriptor;
   private isBotDetected: boolean = false;
+  private botUtm?: BotUtmParams;
+  private botReason?: string;
 
   constructor(options: ProxySdkOptions = {}) {
     this.options = options;
@@ -57,12 +60,27 @@ export class RequestInterceptor {
       const botCheck = isClientBot(this.options.botDetection);
       if (botCheck.isBot) {
         this.isBotDetected = true;
+        this.botUtm = botCheck.utm;
+        this.botReason = botCheck.reason;
         if (typeof console !== 'undefined' && console.warn) {
           console.warn(
-            `[Tatvic SDK] 🤖 Bot detected: ${botCheck.reason}. Request interceptor is muting outgoing analytics telemetry.`
+            `[Tatvic SDK] 🤖 Bot detected: ${botCheck.reason}. Attributing telemetry with utm_source=${botCheck.utm?.utm_source}, utm_medium=${botCheck.utm?.utm_medium}.`
           );
         }
-        this.matcher.log(`Bot environment detected (${botCheck.reason}). Telemetry requests will be suppressed.`);
+        this.matcher.log(
+          `Bot environment detected (${botCheck.reason}). Telemetry requests will carry utm_source=${botCheck.utm?.utm_source}, utm_medium=${botCheck.utm?.utm_medium}.`
+        );
+
+        if (typeof window !== 'undefined' && botCheck.utm) {
+          const w = window as any;
+          w.dataLayer = w.dataLayer || [];
+          w.dataLayer.push({
+            event: 'bot_detected',
+            utm_source: botCheck.utm.utm_source,
+            utm_medium: botCheck.utm.utm_medium,
+            bot_reason: botCheck.reason,
+          });
+        }
       }
     }
 
@@ -133,6 +151,38 @@ export class RequestInterceptor {
   }
 
   /**
+   * Appends bot attribution parameters (cs, cm, ep.utm_source, ep.utm_medium) to a URL string if bot is detected.
+   */
+  private appendBotUtmToUrl(urlStr: string): string {
+    if (!this.isBotDetected || !this.botUtm) return urlStr;
+    try {
+      const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost';
+      const u = new URL(urlStr, origin);
+      if (!u.searchParams.has('cs')) u.searchParams.set('cs', this.botUtm.utm_source);
+      if (!u.searchParams.has('cm')) u.searchParams.set('cm', this.botUtm.utm_medium);
+      if (!u.searchParams.has('ep.utm_source')) u.searchParams.set('ep.utm_source', this.botUtm.utm_source);
+      if (!u.searchParams.has('ep.utm_medium')) u.searchParams.set('ep.utm_medium', this.botUtm.utm_medium);
+      return u.pathname + u.search + u.hash;
+    } catch {
+      return urlStr;
+    }
+  }
+
+  /**
+   * Appends bot attribution headers (X-Tatvic-Bot-Source, X-Tatvic-Bot-Medium) to a Headers collection.
+   */
+  private appendBotUtmHeaders(headers: Headers): void {
+    if (this.isBotDetected && this.botUtm) {
+      if (!headers.has('x-tatvic-bot-source')) {
+        headers.set('x-tatvic-bot-source', this.botUtm.utm_source);
+      }
+      if (!headers.has('x-tatvic-bot-medium')) {
+        headers.set('x-tatvic-bot-medium', this.botUtm.utm_medium);
+      }
+    }
+  }
+
+  /**
    * Patch window.fetch
    */
   private patchFetch(): void {
@@ -140,7 +190,6 @@ export class RequestInterceptor {
     this.originalFetch = window.fetch.bind(window);
     const originalFetch = this.originalFetch;
     const matcher = this.matcher;
-    const isBot = () => this.isBotDetected;
 
     const patchedFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       let targetUrl: string;
@@ -167,16 +216,6 @@ export class RequestInterceptor {
         return originalFetch(input, init);
       }
 
-      // If running inside an automated bot environment, suppress network fetch
-      if (isBot()) {
-        matcher.log('Suppressed fetch for automated bot:', targetUrl);
-        return new Response(null, {
-          status: 204,
-          statusText: 'No Content (Bot Bypassed)',
-          headers: { 'X-Tatvic-Bot-Bypass': 'true' },
-        });
-      }
-
       matcher.log('Intercepted fetch:', targetUrl);
       const isNoCors = init?.mode === 'no-cors' || (typeof Request !== 'undefined' && input instanceof Request && input.mode === 'no-cors');
       const previewToken = this.options.serverPreviewToken || this.detectPreviewToken();
@@ -194,6 +233,9 @@ export class RequestInterceptor {
         headerValue = info.headerValue;
       }
 
+      // Append bot UTM attribution if bot is detected
+      proxyUrl = this.appendBotUtmToUrl(proxyUrl);
+
       if (this.piiRedactor.isEnabled()) {
         proxyUrl = this.piiRedactor.redactUrl(proxyUrl);
       }
@@ -210,6 +252,7 @@ export class RequestInterceptor {
         if (previewToken && !headers.has('x-gtm-server-preview')) {
           headers.set('x-gtm-server-preview', previewToken);
         }
+        this.appendBotUtmHeaders(headers);
 
         const proxiedRequest = new Request(proxyUrl, {
           method: init?.method ?? input.method,
@@ -236,6 +279,7 @@ export class RequestInterceptor {
       if (previewToken && !headers.has('x-gtm-server-preview')) {
         headers.set('x-gtm-server-preview', previewToken);
       }
+      this.appendBotUtmHeaders(headers);
 
       let reqBody = init?.body;
       if (typeof reqBody === 'string' && this.piiRedactor.isEnabled()) {
@@ -270,7 +314,8 @@ export class RequestInterceptor {
     const originalSend = this.originalXhrSend;
     const matcher = this.matcher;
     const piiRedactor = this.piiRedactor;
-    const isBot = () => this.isBotDetected;
+    const getBotUtm = () => this.botUtm;
+    const appendBotUtm = (u: string) => this.appendBotUtmToUrl(u);
     const getPreviewToken = () => this.options.serverPreviewToken || this.detectPreviewToken();
 
     XMLHttpRequest.prototype.open = function (
@@ -292,17 +337,6 @@ export class RequestInterceptor {
         parsed.pathname.startsWith(matcher.getProxyEndpoint());
 
       if (matcher.shouldProxy(targetUrl) || isAlreadyProxy) {
-        if (isBot()) {
-          matcher.log('Suppressed XHR for automated bot:', targetUrl);
-          this.__tatvicMeta = {
-            isProxied: false,
-            isBypassedBot: true,
-            originalUrl: targetUrl,
-          };
-          // Don't issue actual network call; assign dummy data URI
-          return originalOpen.call(this, method, 'data:application/json,{}', async, username, password);
-        }
-
         matcher.log('Intercepted XHR:', targetUrl);
         let proxyUrl: string;
         let headerName: string | undefined;
@@ -317,10 +351,14 @@ export class RequestInterceptor {
           headerValue = info.headerValue;
         }
 
+        // Append bot UTM attribution if bot is detected
+        proxyUrl = appendBotUtm(proxyUrl);
+
         if (piiRedactor.isEnabled()) {
           proxyUrl = piiRedactor.redactUrl(proxyUrl);
         }
         const previewToken = getPreviewToken();
+        const botUtm = getBotUtm();
 
         this.__tatvicMeta = {
           isProxied: true,
@@ -328,6 +366,7 @@ export class RequestInterceptor {
           headerName,
           headerValue,
           previewToken,
+          botUtm,
         };
 
         return originalOpen.call(this, method, proxyUrl, async, username, password);
@@ -341,21 +380,8 @@ export class RequestInterceptor {
       this: XMLHttpRequest,
       body?: Document | XMLHttpRequestBodyInit | null
     ): void {
-      if (this.__tatvicMeta?.isBypassedBot) {
-        matcher.log('Bypassed XHR send for automated bot');
-        try {
-          Object.defineProperty(this, 'readyState', { value: 4, configurable: true });
-          Object.defineProperty(this, 'status', { value: 204, configurable: true });
-          Object.defineProperty(this, 'statusText', { value: 'No Content (Bot Bypassed)', configurable: true });
-          this.dispatchEvent(new Event('readystatechange'));
-          this.dispatchEvent(new Event('load'));
-          this.dispatchEvent(new Event('loadend'));
-        } catch {}
-        return;
-      }
-
       if (this.__tatvicMeta?.isProxied) {
-        const { headerName, headerValue, previewToken } = this.__tatvicMeta;
+        const { headerName, headerValue, previewToken, botUtm } = this.__tatvicMeta;
         if (headerName && headerValue) {
           try {
             this.setRequestHeader(headerName, headerValue);
@@ -369,6 +395,12 @@ export class RequestInterceptor {
           } catch (e) {
             matcher.log('Failed to set preview header on XHR:', e);
           }
+        }
+        if (botUtm) {
+          try {
+            this.setRequestHeader('x-tatvic-bot-source', botUtm.utm_source);
+            this.setRequestHeader('x-tatvic-bot-medium', botUtm.utm_medium);
+          } catch {}
         }
       }
 
@@ -389,7 +421,6 @@ export class RequestInterceptor {
     this.originalSendBeacon = navigator.sendBeacon.bind(navigator);
     const originalSendBeacon = this.originalSendBeacon;
     const matcher = this.matcher;
-    const isBot = () => this.isBotDetected;
     const polyfillWithKeepalive = this.options.polyfillBeaconWithKeepalive !== false;
 
     navigator.sendBeacon = (url: string | URL, data?: BodyInit | null): boolean => {
@@ -413,11 +444,6 @@ export class RequestInterceptor {
         return originalSendBeacon(url, data);
       }
 
-      if (isBot()) {
-        matcher.log('Suppressed sendBeacon for automated bot:', targetUrl);
-        return true;
-      }
-
       matcher.log('Intercepted sendBeacon:', targetUrl);
 
       let beaconData = data;
@@ -429,6 +455,7 @@ export class RequestInterceptor {
       if (polyfillWithKeepalive && typeof window.fetch === 'function') {
         const info = matcher.getProxiedRequestInfo(targetUrl);
         let proxyUrl = isAlreadyProxy ? matcher.sanitizeUrl(targetUrl) : info.proxyUrl;
+        proxyUrl = this.appendBotUtmToUrl(proxyUrl);
         if (this.piiRedactor.isEnabled()) {
           proxyUrl = this.piiRedactor.redactUrl(proxyUrl);
         }
@@ -440,6 +467,7 @@ export class RequestInterceptor {
         if (previewToken) {
           headers.set('x-gtm-server-preview', previewToken);
         }
+        this.appendBotUtmHeaders(headers);
 
         try {
           window.fetch(proxyUrl, {
@@ -465,6 +493,7 @@ export class RequestInterceptor {
         destinationUrl = queryInfo.proxyUrl;
       }
 
+      destinationUrl = this.appendBotUtmToUrl(destinationUrl);
       if (this.piiRedactor.isEnabled()) {
         destinationUrl = this.piiRedactor.redactUrl(destinationUrl);
       }
@@ -506,45 +535,35 @@ export class RequestInterceptor {
     const matcher = this.matcher;
     const originalSet = desc.set;
     const originalGet = desc.get;
-    const isBot = () => this.isBotDetected;
 
+    const self = this;
     Object.defineProperty(HTMLScriptElement.prototype, 'src', {
       set(this: HTMLScriptElement, val: string) {
-        if (isBot()) {
-          const isGtm =
-            typeof val === 'string' &&
-            (val.includes('googletagmanager.com') ||
-              val.includes('/_tatvic/gtm.js') ||
-              val.includes('/_tatvic/loader.js'));
-          if (isGtm || matcher.shouldProxy(val)) {
-            matcher.log('Suppressed dynamic script element for automated bot:', val);
-            return originalSet.call(this, 'data:text/javascript,/*[Tatvic] Bot bypassed*/');
-          }
-        }
-
         if (
           typeof val === 'string' &&
           (val.includes('googletagmanager.com/gtm.js') ||
             val.includes('googletagmanager.com/gtag/js') ||
             val.includes('/gtag/js') ||
             val.includes('/_tatvic/gtm.js') ||
-            val.includes('/_tatvic/loader.js'))
+            val.includes('/_tatvic/loader.js') ||
+            (val.includes('googletagmanager.com') && (val.includes('id=GTM-') || val.includes('id=G-'))))
         ) {
           try {
             const pageSearch = typeof window !== 'undefined' && window.location ? window.location.search : '';
             const pageParams = new URLSearchParams(pageSearch);
             const targetUrl = new URL(val, typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost');
 
-            const isGtag = val.includes('/gtag/js');
+            const isGtag = val.includes('/gtag/js') || (targetUrl.searchParams.get('id') || '').startsWith('G-');
             const containerId =
               targetUrl.searchParams.get('cid') ||
               targetUrl.searchParams.get('container') ||
               targetUrl.searchParams.get('tag') ||
               targetUrl.searchParams.get('id') ||
+              targetUrl.searchParams.get('_id') ||
               (isGtag ? 'G-VVBCZC9JSW' : 'GTM-T32XGF8F');
 
             const morphedParams = new URLSearchParams();
-            // Use stealth param 'cid' to evade EasyPrivacy's '.js?id=GTM-' rule
+            // Use stealth param 'cid' to evade EasyPrivacy's '.js?id=GTM-' and '?id=G-' rules
             morphedParams.set('cid', containerId);
             if (isGtag) {
               morphedParams.set('_type', 'gtag');
@@ -552,7 +571,7 @@ export class RequestInterceptor {
 
             // Copy other query parameters, aliasing any that trigger EasyPrivacy rules
             targetUrl.searchParams.forEach((v, k) => {
-              if (k === 'id' || k === 'cid' || k === 'container' || k === 'tag') return;
+              if (k === 'id' || k === 'cid' || k === 'container' || k === 'tag' || k === '_id') return;
               if (k === 'cx') {
                 morphedParams.set('_cx', v);
               } else if (k === 'gtm') {
@@ -581,10 +600,20 @@ export class RequestInterceptor {
           }
         }
 
-        if (matcher.shouldProxy(val)) {
-          const info = matcher.getProxiedRequestInfo(val, 'query');
-          matcher.log('Intercepted dynamic script element:', val, '->', info.proxyUrl);
-          return originalSet.call(this, info.proxyUrl);
+        const parsed = matcher.parseUrl(val);
+        const isAlreadyProxy =
+          parsed &&
+          typeof window !== 'undefined' &&
+          window.location?.origin &&
+          parsed.origin === window.location.origin &&
+          parsed.pathname.startsWith(matcher.getProxyEndpoint());
+
+        if (matcher.shouldProxy(val) || isAlreadyProxy) {
+          const proxyUrl = isAlreadyProxy
+            ? matcher.sanitizeUrl(val)
+            : matcher.getProxiedRequestInfo(val, 'query').proxyUrl;
+          matcher.log('Intercepted dynamic script element:', val, '->', proxyUrl);
+          return originalSet.call(this, proxyUrl);
         }
         return originalSet.call(this, val);
       },
@@ -609,19 +638,29 @@ export class RequestInterceptor {
     const matcher = this.matcher;
     const originalSet = desc.set;
     const originalGet = desc.get;
-    const isBot = () => this.isBotDetected;
+    const self = this;
 
     Object.defineProperty(HTMLImageElement.prototype, 'src', {
       set(this: HTMLImageElement, val: string) {
-        if (isBot() && matcher.shouldProxy(val)) {
-          matcher.log('Suppressed tracking pixel image for automated bot:', val);
-          return originalSet.call(this, 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7');
-        }
+        const parsed = matcher.parseUrl(val);
+        const isAlreadyProxy =
+          parsed &&
+          typeof window !== 'undefined' &&
+          window.location?.origin &&
+          parsed.origin === window.location.origin &&
+          parsed.pathname.startsWith(matcher.getProxyEndpoint());
 
-        if (matcher.shouldProxy(val)) {
-          const info = matcher.getProxiedRequestInfo(val, 'query');
-          matcher.log('Intercepted tracking pixel image:', val, '->', info.proxyUrl);
-          return originalSet.call(this, info.proxyUrl);
+        if (matcher.shouldProxy(val) || isAlreadyProxy) {
+          let proxyUrl = isAlreadyProxy
+            ? matcher.sanitizeUrl(val)
+            : matcher.getProxiedRequestInfo(val, 'query').proxyUrl;
+
+          proxyUrl = self.appendBotUtmToUrl(proxyUrl);
+          if (self.piiRedactor.isEnabled()) {
+            proxyUrl = self.piiRedactor.redactUrl(proxyUrl);
+          }
+          matcher.log('Intercepted tracking pixel image:', val, '->', proxyUrl);
+          return originalSet.call(this, proxyUrl);
         }
         return originalSet.call(this, val);
       },

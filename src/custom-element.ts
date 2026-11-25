@@ -65,50 +65,17 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
 
     // Client-Side Bot & Automation Detection:
     // If running in an automated / headless browser environment (e.g. Lighthouse, Puppeteer),
-    // cancel script injection/morphing to optimize Core Web Vitals and protect analytics.
+    // automatically append UTM parameters (source & medium) to dataLayer and telemetry hits without blocking the view.
     if (botDetectionEnabled && !isPreview) {
       const botCheck = isClientBot();
       if (botCheck.isBot) {
         if (typeof console !== 'undefined' && console.warn) {
           console.warn(
-            `[Tatvic SDK] 🤖 Bot detected: ${botCheck.reason}. Analytics scripts and tracking were neutralized to protect page speed.`
+            `[Tatvic SDK] 🤖 Bot detected: ${botCheck.reason}. Attributing with utm_source=${botCheck.utm?.utm_source}, utm_medium=${botCheck.utm?.utm_medium}.`
           );
         }
 
-        // Suppress and deactivate any tracking scripts inside the wrapper
-        const suppressScripts = () => {
-          try {
-            if (this.querySelectorAll && typeof document !== 'undefined') {
-              const scripts = this.querySelectorAll('script');
-              scripts.forEach((s) => {
-                const src = s.getAttribute('src') || '';
-                const text = s.textContent || '';
-                if (
-                  src.includes('googletagmanager.com') ||
-                  src.includes('google-analytics.com') ||
-                  src.includes('/_tatvic/loader') ||
-                  src.includes('/_tatvic/gtm') ||
-                  src.includes('/_tatvic/relay') ||
-                  text.includes('gtm.start') ||
-                  text.includes('google-analytics')
-                ) {
-                  s.setAttribute('type', 'text/plain');
-                  s.setAttribute('data-tatvic-bot-bypassed', botCheck.reason ?? 'bot');
-                  s.remove();
-                }
-              });
-            }
-          } catch {
-            // Ignore DOM query failures in non-standard environments
-          }
-        };
-
-        suppressScripts();
-        if (typeof queueMicrotask !== 'undefined') {
-          queueMicrotask(suppressScripts);
-        }
-
-        // Dispatch custom event for telemetry / developer observers with auto-appended UTM attribution
+        // Push bot detection and UTM attribution to dataLayer
         try {
           if (typeof window !== 'undefined') {
             const dl = (window as any).dataLayer || [];
@@ -116,12 +83,13 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
             dl.push({
               event: 'bot_detected',
               utm_source: botCheck.utm?.utm_source ?? 'bot',
-              utm_medium: botCheck.utm?.utm_medium ?? 'automated_agent',
+              utm_medium: botCheck.utm?.utm_medium ?? 'agent',
               bot_reason: botCheck.reason,
             });
           }
         } catch {}
 
+        // Dispatch custom event for telemetry / developer observers with auto-appended UTM attribution
         try {
           window.dispatchEvent(
             new CustomEvent('tatvic:bot-detected', {
@@ -131,8 +99,6 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
             })
           );
         } catch {}
-
-        return; // Complete bypass: no proxy interceptor, no GTM scripts morphed
       }
     }
 
@@ -150,27 +116,39 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
             // 1. Detect GTM script tags and morph to first-party stealth loader with preview params
             if (
               src.includes('googletagmanager.com/gtm.js') ||
+              src.includes('googletagmanager.com/gtag/js') ||
+              src.includes('/gtag/js') ||
               src.includes('/_tatvic/gtm.js') ||
-              src.includes('/_tatvic/loader.js')
+              src.includes('/_tatvic/loader.js') ||
+              (src.includes('googletagmanager.com') && (src.includes('id=GTM-') || src.includes('id=G-')))
             ) {
               const pageSearch = typeof window !== 'undefined' && window.location ? window.location.search : '';
               const pageParams = new URLSearchParams(pageSearch);
               const targetUrl = new URL(src, typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost');
 
+              const isGtag = src.includes('/gtag/js') || (targetUrl.searchParams.get('id') || '').startsWith('G-');
               const containerId =
                 targetUrl.searchParams.get('cid') ||
                 targetUrl.searchParams.get('container') ||
                 targetUrl.searchParams.get('tag') ||
                 targetUrl.searchParams.get('id') ||
-                'GTM-T32XGF8F';
+                targetUrl.searchParams.get('_id') ||
+                (isGtag ? 'G-VVBCZC9JSW' : 'GTM-T32XGF8F');
 
               const morphedParams = new URLSearchParams();
               // Evade EasyPrivacy '.js?id=GTM-' and '/gtm.js' rules with stealth parameter 'cid'
               morphedParams.set('cid', containerId);
+              if (isGtag) {
+                morphedParams.set('_type', 'gtag');
+              }
 
               targetUrl.searchParams.forEach((v, k) => {
-                if (k !== 'id' && k !== 'cid' && k !== 'container' && k !== 'tag') {
-                  morphedParams.set(k, v);
+                if (k !== 'id' && k !== 'cid' && k !== 'container' && k !== 'tag' && k !== '_id' && k !== '_type') {
+                  if (k === 'cx') morphedParams.set('_cx', v);
+                  else if (k === 'gtm') morphedParams.set('_gtm', v);
+                  else if (k === 'tag_exp') morphedParams.set('_tag_exp', v);
+                  else if (k === 'l' && (v === 'dataLayer' || v.includes('Layer'))) morphedParams.set('_l', v);
+                  else morphedParams.set(k, v);
                 }
               });
 

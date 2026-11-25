@@ -73,8 +73,9 @@ export interface ProxySdkOptions {
 
   /**
    * Bot & LLM Agent Detection options.
-   * When enabled, prevents tracking scripts from executing in automated/headless browsers
-   * (e.g. Lighthouse, Puppeteer) to boost Core Web Vitals and protect analytics.
+   * When enabled, automated bots, AI crawlers, and scrapers are detected and automatically
+   * attributed with standardized UTM parameters (source e.g. gpt, gemini; medium e.g. assistant, agent, crawler)
+   * in dataLayer and telemetry hits without blocking the view.
    * Default: true
    */
   botDetection?: boolean | BotDetectionOptions;
@@ -113,9 +114,8 @@ export interface ServerProxyOptions {
    * Bot and LLM Agent Detection configuration.
    * When enabled, automated bots, AI crawlers, and scrapers are detected using Cloudflare
    * Bot Management headers (cf-bot-score, cf-verified-bot-category) and User-Agent patterns.
-   * When a bot is detected, tracking loaders (/loader.js, /gtm.js) return a blank 0KB script,
-   * saving server/client CPU and bandwidth and boosting Lighthouse scores, while telemetry
-   * hits return 204 No Content without polluting analytics.
+   * Standardized UTM parameters (utm_source e.g. gpt, gemini; utm_medium e.g. assistant, agent, crawler)
+   * are automatically appended to dataLayer and forwarded telemetry hits without blocking the view or suppressing scripts.
    * Default: true
    */
   botDetection?: boolean | BotDetectionOptions;

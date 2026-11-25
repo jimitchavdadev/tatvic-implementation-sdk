@@ -2,25 +2,32 @@ import type { BotDetectionOptions, BotDetectionResult, BotUtmParams } from './ty
 
 export const AI_BOT_PATTERNS: RegExp[] = [
   /GPTBot/i,
-  /ChatGPT-User/i,
+  /ChatGPT/i,
   /OAI-SearchBot/i,
   /ClaudeBot/i,
   /Claude-Web/i,
   /Claude-User/i,
+  /Claude-SearchBot/i,
+  /Claude/i,
   /anthropic-ai/i,
   /PerplexityBot/i,
   /Perplexity-User/i,
+  /Perplexity/i,
   /Bytespider/i,
   /CCBot/i,
   /Google-Extended/i,
   /Google-CloudVertexBot/i,
   /Google-InspectionTool/i,
   /Gemini/i,
+  /Copilot/i,
   /Meta-ExternalAgent/i,
   /Meta-ExternalFetcher/i,
+  /Meta-WebIndexer/i,
   /FacebookBot/i,
   /Amazonbot/i,
   /Applebot-Extended/i,
+  /Applebot/i,
+  /DuckAssistBot/i,
   /MistralBot/i,
   /MistralAI-User/i,
   /cohere-ai/i,
@@ -113,110 +120,199 @@ export const DEFAULT_BOT_OPTIONS: Required<BotDetectionOptions> = {
 };
 
 /**
- * Resolves automated bot, LLM crawler, or synthetic agent identification into standardized UTM parameters (source & medium).
- * - OpenAI (GPTBot, ChatGPT)  -> utm_source=llm_agent, utm_medium=openai
- * - Anthropic (ClaudeBot)     -> utm_source=llm_agent, utm_medium=anthropic
- * - Google Gemini / Vertex    -> utm_source=llm_agent, utm_medium=gemini
- * - Perplexity                -> utm_source=llm_agent, utm_medium=perplexity
- * - ByteDance (Bytespider)    -> utm_source=llm_agent, utm_medium=bytedance
- * - Meta AI                   -> utm_source=llm_agent, utm_medium=meta
- * - DeepSeek                  -> utm_source=llm_agent, utm_medium=deepseek
- * - Applebot-Extended         -> utm_source=llm_agent, utm_medium=apple
- * - Mistral                   -> utm_source=llm_agent, utm_medium=mistral
- * - Lighthouse / PageSpeed    -> utm_source=bot, utm_medium=lighthouse
- * - Headless browser runner   -> utm_source=bot, utm_medium=headless_browser
- * - Script / HTTP scraper     -> utm_source=bot, utm_medium=http_scraper
+ * Resolves automated bot, LLM crawler, or synthetic agent identification into standardized UTM parameters.
+ * Classification Taxonomy (based on industry AI crawler & assistant standards):
+ * - utm_source: the specific platform or engine (e.g. gpt, gemini, claude, perplexity, copilot, meta, apple, bytedance, deepseek, mistral)
+ * - utm_medium: the functional role or activity (e.g. assistant, agent, crawler, search, audit, automation, scraper)
  */
 export function getBotUtmParams(userAgent: string, botResult?: BotDetectionResult): BotUtmParams {
   const ua = (userAgent || '').toLowerCase();
+  const category = (botResult?.category || '').toLowerCase();
 
-  // 1. OpenAI (GPTBot, ChatGPT, OAI-SearchBot)
+  // 1. OpenAI (ChatGPT / GPTBot / OAI-SearchBot)
   if (ua.includes('gptbot') || ua.includes('chatgpt') || ua.includes('oai-searchbot') || ua.includes('openai')) {
-    return { utm_source: 'llm_agent', utm_medium: 'openai' };
+    const source = 'gpt';
+    let medium = 'crawler';
+    if (ua.includes('chatgpt-user') || ua.includes('chatgpt') || category.includes('assistant')) {
+      medium = 'assistant';
+    } else if (ua.includes('oai-searchbot') || category.includes('search') || category.includes('agent')) {
+      medium = 'agent';
+    } else if (ua.includes('gptbot')) {
+      medium = 'crawler';
+    }
+    return { utm_source: source, utm_medium: medium };
   }
 
-  // 2. Anthropic (ClaudeBot, Claude-Web, Claude-User, anthropic-ai)
+  // 2. Google Gemini / Vertex / Extended
+  if (ua.includes('gemini') || ua.includes('google-extended') || ua.includes('vertexbot') || ua.includes('google-cloudvertexbot')) {
+    const source = 'gemini';
+    let medium = 'crawler';
+    if (ua.includes('gemini') && !ua.includes('extended')) {
+      medium = 'assistant';
+    } else if (ua.includes('vertexbot') || ua.includes('cloudvertex')) {
+      medium = 'agent';
+    }
+    return { utm_source: source, utm_medium: medium };
+  }
+
+  // 3. Anthropic Claude (ClaudeBot / Claude-User / Claude-SearchBot)
   if (ua.includes('claudebot') || ua.includes('claude') || ua.includes('anthropic')) {
-    return { utm_source: 'llm_agent', utm_medium: 'anthropic' };
+    const source = 'claude';
+    let medium = 'crawler';
+    if (ua.includes('claude-user') || category.includes('assistant')) {
+      medium = 'assistant';
+    } else if (ua.includes('claude-searchbot') || ua.includes('claude-web') || category.includes('search') || category.includes('agent')) {
+      medium = 'agent';
+    }
+    return { utm_source: source, utm_medium: medium };
   }
 
-  // 3. Google Gemini / Vertex
-  if (ua.includes('google-extended') || ua.includes('vertexbot') || ua.includes('gemini')) {
-    return { utm_source: 'llm_agent', utm_medium: 'gemini' };
-  }
-
-  // 4. Perplexity
+  // 4. Perplexity AI
   if (ua.includes('perplexity')) {
-    return { utm_source: 'llm_agent', utm_medium: 'perplexity' };
+    const source = 'perplexity';
+    const medium = ua.includes('perplexity-user') || category.includes('assistant') ? 'assistant' : 'agent';
+    return { utm_source: source, utm_medium: medium };
   }
 
-  // 5. ByteDance
-  if (ua.includes('bytespider')) {
-    return { utm_source: 'llm_agent', utm_medium: 'bytedance' };
+  // 5. Microsoft Copilot / Bing
+  if (ua.includes('copilot') || ua.includes('bing-copilot')) {
+    return { utm_source: 'copilot', utm_medium: 'assistant' };
   }
 
-  // 6. DeepSeek
-  if (ua.includes('deepseek')) {
-    return { utm_source: 'llm_agent', utm_medium: 'deepseek' };
+  // 6. Meta AI (Meta-ExternalAgent / Meta-ExternalFetcher / FacebookBot)
+  if (ua.includes('meta-external') || ua.includes('facebookbot') || ua.includes('meta-webindexer')) {
+    const source = 'meta';
+    const medium = ua.includes('externalfetcher') || ua.includes('webindexer') ? 'agent' : 'crawler';
+    return { utm_source: source, utm_medium: medium };
   }
 
-  // 7. Meta AI
-  if (ua.includes('meta-external') || ua.includes('facebookbot')) {
-    return { utm_source: 'llm_agent', utm_medium: 'meta' };
-  }
-
-  // 8. Applebot-Extended
+  // 7. Apple Intelligence / Applebot
   if (ua.includes('applebot-extended')) {
-    return { utm_source: 'llm_agent', utm_medium: 'apple' };
+    return { utm_source: 'apple', utm_medium: 'crawler' };
+  }
+  if (ua.includes('applebot')) {
+    return { utm_source: 'apple', utm_medium: 'search' };
   }
 
-  // 9. Mistral
+  // 8. ByteDance (Bytespider)
+  if (ua.includes('bytespider') || ua.includes('bytedance')) {
+    return { utm_source: 'bytedance', utm_medium: 'crawler' };
+  }
+
+  // 9. Mistral AI
   if (ua.includes('mistral')) {
-    return { utm_source: 'llm_agent', utm_medium: 'mistral' };
+    const source = 'mistral';
+    const medium = ua.includes('mistralai-user') ? 'assistant' : 'crawler';
+    return { utm_source: source, utm_medium: medium };
   }
 
-  // 10. Cohere
+  // 10. DeepSeek
+  if (ua.includes('deepseek')) {
+    return { utm_source: 'deepseek', utm_medium: 'crawler' };
+  }
+
+  // 11. Amazon
+  if (ua.includes('amazonbot')) {
+    return { utm_source: 'amazon', utm_medium: 'crawler' };
+  }
+
+  // 12. DuckDuckGo AI / Search
+  if (ua.includes('duckassistbot')) {
+    return { utm_source: 'duckduckgo', utm_medium: 'assistant' };
+  }
+  if (ua.includes('duckduckbot')) {
+    return { utm_source: 'duckduckgo', utm_medium: 'search' };
+  }
+
+  // 13. Cohere
   if (ua.includes('cohere')) {
-    return { utm_source: 'llm_agent', utm_medium: 'cohere' };
+    return { utm_source: 'cohere', utm_medium: 'crawler' };
   }
 
-  // 11. Common Crawl
+  // 14. Common Crawl
   if (ua.includes('ccbot')) {
-    return { utm_source: 'llm_agent', utm_medium: 'common_crawl' };
+    return { utm_source: 'commoncrawl', utm_medium: 'crawler' };
   }
 
-  // 12. Automated Lighthouse / Audits
-  if (ua.includes('lighthouse') || ua.includes('pagespeed')) {
-    return { utm_source: 'bot', utm_medium: 'lighthouse' };
+  // 15. Traditional Search Engine Crawlers
+  if (ua.includes('googlebot')) {
+    return { utm_source: 'googlebot', utm_medium: 'search' };
+  }
+  if (ua.includes('bingbot')) {
+    return { utm_source: 'bingbot', utm_medium: 'search' };
+  }
+  if (ua.includes('yandexbot')) {
+    return { utm_source: 'yandex', utm_medium: 'search' };
+  }
+  if (ua.includes('baiduspider')) {
+    return { utm_source: 'baidu', utm_medium: 'search' };
   }
 
-  // 13. Headless Browsers
+  // 16. Audit / Performance Tools (Lighthouse, PageSpeed, etc.)
+  if (ua.includes('lighthouse') || ua.includes('pagespeed') || ua.includes('chrome-lighthouse')) {
+    return { utm_source: 'lighthouse', utm_medium: 'audit' };
+  }
+
+  // 17. Headless Browser Automation (Puppeteer, Playwright, Selenium, WebDriver)
   if (
     ua.includes('headlesschrome') ||
     ua.includes('puppeteer') ||
     ua.includes('playwright') ||
     ua.includes('selenium') ||
+    ua.includes('webdriver') ||
+    ua.includes('phantomjs') ||
+    ua.includes('cypress') ||
     botResult?.type === 'automated_browser'
   ) {
-    return { utm_source: 'bot', utm_medium: 'headless_browser' };
+    return { utm_source: 'headless_browser', utm_medium: 'automation' };
   }
 
-  // 14. HTTP Scrapers (curl, python, etc.)
-  if (
-    ua.includes('curl') ||
-    ua.includes('python') ||
-    ua.includes('scrapy') ||
-    ua.includes('wget') ||
-    botResult?.type === 'http_scraper'
-  ) {
-    return { utm_source: 'bot', utm_medium: 'http_scraper' };
+  // 18. HTTP Scrapers / CLI tools
+  if (ua.includes('curl/')) {
+    return { utm_source: 'curl', utm_medium: 'scraper' };
+  }
+  if (ua.includes('python-requests') || ua.includes('python-urllib') || ua.includes('aiohttp') || ua.includes('httpx')) {
+    return { utm_source: 'python', utm_medium: 'scraper' };
+  }
+  if (ua.includes('scrapy')) {
+    return { utm_source: 'scrapy', utm_medium: 'scraper' };
+  }
+  if (ua.includes('wget/')) {
+    return { utm_source: 'wget', utm_medium: 'scraper' };
+  }
+  if (ua.includes('postmanruntime')) {
+    return { utm_source: 'postman', utm_medium: 'scraper' };
+  }
+  if (botResult?.type === 'http_scraper') {
+    return { utm_source: 'scraper', utm_medium: 'scraper' };
   }
 
-  // 15. Default Fallback
-  const isAi = botResult?.type === 'ai_agent' || (botResult?.category && botResult.category.toLowerCase().includes('ai'));
+  // 19. Cloudflare Verified Bot Categories
+  if (category) {
+    if (category.includes('assistant')) {
+      return { utm_source: 'cf_bot', utm_medium: 'assistant' };
+    }
+    if (category.includes('search')) {
+      return { utm_source: 'cf_bot', utm_medium: 'agent' };
+    }
+    if (category.includes('crawler') || category.includes('training')) {
+      return { utm_source: 'cf_bot', utm_medium: 'crawler' };
+    }
+    if (category.includes('scraper')) {
+      return { utm_source: 'cf_bot', utm_medium: 'scraper' };
+    }
+  }
+
+  // 20. Cloudflare Low Bot Score Fallback
+  if (botResult?.type === 'cf_score') {
+    return { utm_source: 'automated_bot', utm_medium: 'agent' };
+  }
+
+  // 21. Default Fallback
+  const isAi = botResult?.type === 'ai_agent' || category.includes('ai');
   return {
-    utm_source: isAi ? 'llm_agent' : 'bot',
-    utm_medium: isAi ? 'generic_ai' : 'unknown_bot',
+    utm_source: isAi ? 'ai_bot' : 'bot',
+    utm_medium: isAi ? 'agent' : 'automation',
   };
 }
 
@@ -507,7 +603,7 @@ export function isClientBot(optionsConfig?: boolean | BotDetectionOptions): BotD
 export function getBypassedScriptResponse(reason?: string, utm?: BotUtmParams): Response {
   const safeReason = (reason ?? 'Automated bot').replace(/[\r\n"']/g, ' ');
   const utmSource = utm?.utm_source ?? 'bot';
-  const utmMedium = utm?.utm_medium ?? 'automated_agent';
+  const utmMedium = utm?.utm_medium ?? 'agent';
 
   const code = `/* [Tatvic SDK] 🤖 Automated agent detected (${safeReason}).
  * Auto-appended attribution: utm_source=${utmSource}&utm_medium=${utmMedium}
