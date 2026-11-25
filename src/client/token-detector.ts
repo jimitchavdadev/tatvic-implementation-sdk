@@ -34,7 +34,9 @@ export function detectPreviewToken(): string | undefined {
 
     // 4. Check document.cookie for GTM preview cookies
     if (typeof document !== 'undefined' && document.cookie) {
-      const match = document.cookie.match(/(?:^|;\s*)(?:_gtm_server_preview|gtm_server_preview)=([^;]+)/);
+      const match = document.cookie.match(
+        /(?:^|;\s*)(?:_gtm_server_preview|gtm_server_preview|gtm_preview)=([^;]+)/
+      );
       if (match && match[1]) return decodeURIComponent(match[1]);
     }
 

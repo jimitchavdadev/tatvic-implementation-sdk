@@ -57,14 +57,32 @@ export async function forwardUpstreamRequest(opts: ForwardOptions): Promise<Resp
     }
   });
 
+  // Extract sGTM preview token with priority for active incoming request session
+  let cookieToken: string | undefined;
+  const cookieHeader = request.headers.get('cookie');
+  if (cookieHeader) {
+    const match = cookieHeader.match(/(?:^|;\s*)(?:_gtm_server_preview|gtm_server_preview|gtm_preview)=([^;]+)/);
+    if (match && match[1]) {
+      try {
+        cookieToken = decodeURIComponent(match[1]);
+      } catch {
+        cookieToken = match[1];
+      }
+    }
+  }
+
   const previewToken =
-    serverOptions.serverPreviewToken ||
     request.headers.get('x-gtm-server-preview') ||
     targetUrl.searchParams.get('gtm_server_preview') ||
-    targetUrl.searchParams.get('_gtm_server_preview');
+    targetUrl.searchParams.get('_gtm_server_preview') ||
+    cookieToken ||
+    serverOptions.serverPreviewToken;
 
   if (previewToken) {
     forwardHeaders.set('x-gtm-server-preview', previewToken);
+    if (!targetUrl.searchParams.has('gtm_server_preview') && !targetUrl.searchParams.has('_gtm_server_preview')) {
+      targetUrl.searchParams.set('_gtm_server_preview', previewToken);
+    }
   }
 
   // Forward client IP
