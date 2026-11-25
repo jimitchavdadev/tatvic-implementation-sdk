@@ -377,4 +377,19 @@ describe('morphGtmScript', () => {
     const morphed = morphGtmScript(snippet, '/_tatvic/relay');
     expect(morphed).toContain('https://tagassistant.google.com/?id=GTM-123');
   });
+
+  it('should rewrite GTM currentScript / scriptSource assignment to canonical GTM URL for Tag Assistant handshake', () => {
+    const snippet = `var Pc,Qc=C.currentScript,Rc=(Pc=Qc&&Qc.tagName==="SCRIPT"?Qc:null)&&Pc.src;`;
+    const morphed = morphGtmScript(snippet, '/_tatvic/relay', 'GTM-T32XGF8F');
+
+    expect(morphed).not.toBe(snippet);
+    expect(morphed).toContain('googletagmanager.com');
+    expect(morphed).toContain('GTM-T32XGF8F');
+  });
+
+  it('should never intercept or hijack Tag Assistant debug/bootstrap scripts', () => {
+    const matcher = new UrlMatcher();
+    expect(matcher.shouldProxy('https://www.googletagmanager.com/debug/bootstrap?id=GTM-T32XGF8F')).toBe(false);
+    expect(matcher.shouldProxy('https://tagassistant.google.com/')).toBe(false);
+  });
 });

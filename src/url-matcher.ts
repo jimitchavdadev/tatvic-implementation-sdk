@@ -102,6 +102,11 @@ export class UrlMatcher {
 
     const hostname = parsed.hostname.toLowerCase();
 
+    // Never proxy Tag Assistant or debug endpoints
+    if (parsed.pathname.includes('/debug/') || hostname === 'tagassistant.google.com' || hostname === 'cct.google') {
+      return false;
+    }
+
     // Don't proxy requests already going to the proxy endpoint or same origin
     if (typeof window !== 'undefined' && window.location?.origin && parsed.origin === window.location.origin) {
       if (parsed.pathname.startsWith(this.proxyEndpoint)) {

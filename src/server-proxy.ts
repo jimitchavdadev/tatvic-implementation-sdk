@@ -347,7 +347,11 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       // If fetching a GTM container script via relay, morph it before returning!
       if (targetUrl.hostname.includes('googletagmanager.com') && targetUrl.pathname.includes('/gtm.js')) {
         const rawCode = await upstreamResponse.text();
-        const morphedCode = morphGtmScript(rawCode, relayEndpoint);
+        const morphedCode = morphGtmScript(
+          rawCode,
+          relayEndpoint,
+          targetUrl.searchParams.get('id') || targetUrl.searchParams.get('cid') || targetUrl.searchParams.get('_id') || 'GTM-T32XGF8F'
+        );
         const isDebug = targetUrl.searchParams.has('gtm_debug');
 
         return new Response(morphedCode, {
@@ -482,7 +486,7 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       }
 
       const rawCode = await upstreamRes.text();
-      const morphedCode = morphGtmScript(rawCode, relayEndpoint);
+      const morphedCode = morphGtmScript(rawCode, relayEndpoint, containerId);
       const isDebug = reqUrl.searchParams.has('gtm_debug') || upstreamUrl.searchParams.has('gtm_debug');
 
       let finalCode = morphedCode;

@@ -115,12 +115,16 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
 
             // 1. Detect GTM script tags and morph to first-party stealth loader with preview params
             if (
-              src.includes('googletagmanager.com/gtm.js') ||
-              src.includes('googletagmanager.com/gtag/js') ||
-              src.includes('/gtag/js') ||
-              src.includes('/_tatvic/gtm.js') ||
-              src.includes('/_tatvic/loader.js') ||
-              (src.includes('googletagmanager.com') && (src.includes('id=GTM-') || src.includes('id=G-')))
+              !src.includes('/debug/') &&
+              !src.includes('debug/bootstrap') &&
+              !src.includes('tagassistant.google.com') &&
+              !src.includes('/taggy/') &&
+              (src.includes('googletagmanager.com/gtm.js') ||
+                src.includes('googletagmanager.com/gtag/js') ||
+                src.includes('/gtag/js') ||
+                src.includes('/_tatvic/gtm.js') ||
+                src.includes('/_tatvic/loader.js') ||
+                (src.includes('googletagmanager.com') && (src.includes('id=GTM-') || src.includes('id=G-'))))
             ) {
               const pageSearch = typeof window !== 'undefined' && window.location ? window.location.search : '';
               const pageParams = new URLSearchParams(pageSearch);

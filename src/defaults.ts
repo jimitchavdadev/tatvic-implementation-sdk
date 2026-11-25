@@ -117,6 +117,7 @@ export const DEFAULT_EXCLUDE_DOMAINS: (string | RegExp)[] = [
 
   // Core Cloud Infrastructure & Debug Tools
   'tagassistant.google.com',
+  'cct.google',
   'amazonaws.com',
   'googleapis.com',
   'cloudflare.com',

@@ -541,6 +541,10 @@ export class RequestInterceptor {
       set(this: HTMLScriptElement, val: string) {
         if (
           typeof val === 'string' &&
+          !val.includes('/debug/') &&
+          !val.includes('debug/bootstrap') &&
+          !val.includes('tagassistant.google.com') &&
+          !val.includes('/taggy/') &&
           (val.includes('googletagmanager.com/gtm.js') ||
             val.includes('googletagmanager.com/gtag/js') ||
             val.includes('/gtag/js') ||
