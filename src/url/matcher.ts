@@ -37,8 +37,14 @@ export class UrlMatcher {
 
     const hostname = parsed.hostname.toLowerCase();
 
-    // Never proxy Tag Assistant or debug endpoints
-    if (parsed.pathname.includes('/debug/') || hostname === 'tagassistant.google.com' || hostname === 'cct.google') {
+    // Never proxy Tag Assistant, debug, or internal GTM template/asset endpoints
+    if (
+      parsed.pathname.includes('/debug/') ||
+      parsed.pathname.includes('/taggy/') ||
+      parsed.pathname.includes('/templates/') ||
+      hostname === 'tagassistant.google.com' ||
+      hostname === 'cct.google'
+    ) {
       return false;
     }
 

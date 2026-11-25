@@ -392,6 +392,53 @@ describe('morphGtmScript', () => {
     expect(matcher.shouldProxy('https://www.googletagmanager.com/debug/bootstrap?id=GTM-T32XGF8F')).toBe(false);
     expect(matcher.shouldProxy('https://tagassistant.google.com/')).toBe(false);
   });
+
+  it('should preserve GTM template definitions and sandbox permissions without generic URL corruption', () => {
+    const templateSnippet = `
+      var templateData = {"permissions": {"send_pixel": {"allowed_urls": ["https://www.google-analytics.com/custom_path"]}}};
+      function check(url) { return url.indexOf("https://www.google-analytics.com/mp/collect") !== -1; }
+    `;
+    const morphed = morphGtmScript(templateSnippet, '/_tatvic/relay');
+    // Permissions and custom template string comparisons must remain intact
+    expect(morphed).toContain('https://www.google-analytics.com/custom_path');
+    expect(morphed).toContain('https://www.google-analytics.com/mp/collect');
+  });
+});
+
+describe('GTM Sandbox Environment & Custom Template Safety', () => {
+  it('should safely handle GTM internal objects, DOM nodes, callbacks and frozen objects without impacting GTM sandbox', () => {
+    const redactor = new (require('../dist/index.cjs').PiiRedactor)(true);
+
+    const mockCallback = () => 'done';
+    const mockNode = { nodeType: 1, tagName: 'BUTTON', parentNode: null };
+    const frozenConfig = Object.freeze({ key: 'custom_config', email: 'test@tatvic.com' });
+
+    const circularObj: any = { event: 'custom_click', email: 'jimit@tatvic.com' };
+    circularObj.self = circularObj;
+
+    const gtmPayload = {
+      event: 'gtm.click',
+      'gtm.element': mockNode,
+      'gtm.start': 1700000000000,
+      eventCallback: mockCallback,
+      eventTimeout: 2000,
+      user_email: 'jimit@tatvic.com',
+      circular: circularObj,
+      frozen: frozenConfig,
+    };
+
+    const sanitized = redactor.redactJsonObject(gtmPayload);
+
+    // GTM sandbox properties and callbacks preserved
+    expect(sanitized['gtm.element']).toBe(mockNode);
+    expect(sanitized['gtm.start']).toBe(1700000000000);
+    expect(sanitized.eventCallback).toBe(mockCallback);
+    expect(sanitized.eventTimeout).toBe(2000);
+
+    // PII properly redacted
+    expect(sanitized.user_email).toBe('NA');
+    expect(sanitized.circular.email).toBe('NA');
+  });
 });
 
 describe('CommonJS (CJS) Artifacts & Exports', () => {

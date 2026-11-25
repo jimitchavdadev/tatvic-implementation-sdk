@@ -37,9 +37,8 @@ export function morphGtmScript(
   );
 
   // 2. Rewrite external tracking & advertising endpoints into first-party relay calls.
-  // NOTE: We deliberately do NOT rewrite 'googletagmanager.com' internally because GTM
-  // relies on document.currentScript and new URL() calls with absolute origins.
-  // The GTM container script itself is already loaded via first-party /_tatvic/gtm.js.
+  // We strictly target collection hit endpoints so GTM template definitions, permissions,
+  // and custom template Sandboxed JavaScript are NEVER altered or broken.
   const endpointReplacements: [RegExp, string][] = [
     // Google Ad Services & DoubleClick
     [/https:\/\/adservice\.google\.com\//g, `${relayEndpoint}?_tgt=https%3A%2F%2Fadservice.google.com%2F`],
@@ -51,9 +50,11 @@ export function morphGtmScript(
     [/https:\/\/analytics\.google\.com\/g\/collect/g, `${relayEndpoint}`],
     [/https:\/\/region1\.google-analytics\.com\/g\/collect/g, `${relayEndpoint}`],
     [/https:\/\/stats\.g\.doubleclick\.net\/g\/collect/g, `${relayEndpoint}`],
-    [/https:\/\/www\.google-analytics\.com\//g, `${relayEndpoint}?_tgt=https%3A%2F%2Fwww.google-analytics.com%2F`],
-    [/https:\/\/analytics\.google\.com\//g, `${relayEndpoint}?_tgt=https%3A%2F%2Fanalytics.google.com%2F`],
-    [/https:\/\/region1\.google-analytics\.com\//g, `${relayEndpoint}?_tgt=https%3A%2F%2Fregion1.google-analytics.com%2F`],
+    [/https:\/\/www\.google-analytics\.com\/collect/g, `${relayEndpoint}`],
+    [/https:\/\/analytics\.google\.com\/collect/g, `${relayEndpoint}`],
+    [/https:\/\/region1\.google-analytics\.com\/collect/g, `${relayEndpoint}`],
+    [/https:\/\/www\.google-analytics\.com\/j\/collect/g, `${relayEndpoint}`],
+    [/https:\/\/analytics\.google\.com\/j\/collect/g, `${relayEndpoint}`],
     // GTM internal diagnostic telemetry pings (/a?)
     [/https:\/\/www\.googletagmanager\.com\/a\?/g, `${relayEndpoint}?_telemetry=gtm&`],
   ];

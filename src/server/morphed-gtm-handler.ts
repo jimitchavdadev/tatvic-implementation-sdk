@@ -74,7 +74,12 @@ export async function handleMorphedGtmRequest(
 
     const rawCode = await upstreamRes.text();
     const morphedCode = morphGtmScript(rawCode, relayEndpoint, containerId);
-    const isDebug = reqUrl.searchParams.has('gtm_debug') || upstreamUrl.searchParams.has('gtm_debug');
+    const isDebug =
+      reqUrl.searchParams.has('gtm_debug') ||
+      reqUrl.searchParams.has('gtm_preview') ||
+      reqUrl.searchParams.has('gtm_auth') ||
+      upstreamUrl.searchParams.has('gtm_debug') ||
+      upstreamUrl.searchParams.has('gtm_preview');
 
     let finalCode = morphedCode;
 
@@ -110,7 +115,7 @@ if (typeof window !== 'undefined') {
   });
 }
 `;
-      finalCode = botInjection + morphedCode;
+      finalCode = botInjection + finalCode;
     }
 
     const headers: Record<string, string> = {

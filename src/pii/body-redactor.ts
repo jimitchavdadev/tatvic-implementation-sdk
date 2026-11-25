@@ -1,38 +1,68 @@
 /**
  * Redacts JSON objects recursively replacing any values identified as PII with replacement.
+ * Defensively isolates GTM sandbox environment, DOM nodes, callbacks, and frozen objects.
  */
 export function redactJsonObject(
   obj: any,
   replacement: string,
-  hasPiiFn: (key: string, val: unknown) => boolean
+  hasPiiFn: (key: string, val: unknown) => boolean,
+  seen: WeakSet<object> = new WeakSet()
 ): any {
   if (obj === null || obj === undefined) return obj;
-  if (Array.isArray(obj)) {
-    return obj.map((item) => redactJsonObject(item, replacement, hasPiiFn));
+  if (typeof obj !== 'object') {
+    if (typeof obj === 'string' && hasPiiFn('value', obj)) {
+      return replacement;
+    }
+    return obj;
   }
+
+  // Prevent circular reference infinite loops
+  if (seen.has(obj)) return obj;
+  seen.add(obj);
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => redactJsonObject(item, replacement, hasPiiFn, seen));
+  }
+
   const isArguments =
-    typeof obj === 'object' &&
-    (Object.prototype.toString.call(obj) === '[object Arguments]' ||
-      (typeof obj.length === 'number' && typeof obj.callee === 'function'));
+    Object.prototype.toString.call(obj) === '[object Arguments]' ||
+    (typeof obj.length === 'number' && typeof obj.callee === 'function');
   if (isArguments) {
     for (let i = 0; i < obj.length; i++) {
-      obj[i] = redactJsonObject(obj[i], replacement, hasPiiFn);
+      obj[i] = redactJsonObject(obj[i], replacement, hasPiiFn, seen);
     }
     return obj;
   }
-  if (typeof obj === 'object') {
-    for (const [k, v] of Object.entries(obj)) {
-      if (typeof v === 'object' && v !== null) {
-        obj[k] = redactJsonObject(v, replacement, hasPiiFn);
-      } else if (hasPiiFn(k, v)) {
-        obj[k] = replacement;
-      }
-    }
+
+  // Skip DOM elements, Window, and non-plain objects to protect GTM sandbox
+  if ((obj as any).nodeType || (typeof window !== 'undefined' && obj === window)) {
     return obj;
   }
-  if (typeof obj === 'string') {
-    if (hasPiiFn('value', obj)) {
-      return replacement;
+  const proto = Object.getPrototypeOf(obj);
+  if (proto !== null && proto !== Object.prototype) {
+    return obj;
+  }
+
+  // If object is frozen, do not mutate in place
+  if (Object.isFrozen(obj)) {
+    return obj;
+  }
+
+  for (const [k, v] of Object.entries(obj)) {
+    // Preserve GTM sandbox internal properties, events, and callbacks untouched
+    if (
+      k.startsWith('gtm.') ||
+      k.startsWith('_gtm') ||
+      k === 'eventCallback' ||
+      k === 'eventTimeout' ||
+      k.startsWith('google_tag_')
+    ) {
+      continue;
+    }
+    if (typeof v === 'object' && v !== null) {
+      obj[k] = redactJsonObject(v, replacement, hasPiiFn, seen);
+    } else if (hasPiiFn(k, v)) {
+      obj[k] = replacement;
     }
   }
   return obj;

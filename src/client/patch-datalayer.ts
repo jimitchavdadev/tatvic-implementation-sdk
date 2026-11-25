@@ -37,6 +37,8 @@ export function patchDataLayer(ctx: PatchContext): PropertyDescriptor | undefine
               args[i] = piiRedactor.redactJsonObject(args[i]);
             }
             matcher.log(`Sanitized ${dataLayerKey}.push:`, args);
+          } catch {
+            // Never let sanitization throw into GTM sandbox or break tag push
           } finally {
             isSanitizing = false;
           }
@@ -45,20 +47,22 @@ export function patchDataLayer(ctx: PatchContext): PropertyDescriptor | undefine
       };
     };
 
+    let wrappedPush = wrapPush(targetPush);
+
     try {
       Object.defineProperty(arr, 'push', {
         get() {
-          return wrapPush(targetPush);
+          return wrappedPush;
         },
         set(newPushFn: any) {
           targetPush = typeof newPushFn === 'function' ? newPushFn : targetPush;
+          wrappedPush = wrapPush(targetPush);
         },
         configurable: true,
         enumerable: false,
       });
     } catch {
-      const prevPush = arr.push;
-      arr.push = wrapPush(prevPush);
+      arr.push = wrapPush(arr.push);
     }
   };
 
