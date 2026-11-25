@@ -448,12 +448,30 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
       }
     });
 
+    // Check Referer header for Tag Assistant flags if not present in reqUrl
+    const referer = request.headers.get('referer');
+    if (referer) {
+      try {
+        const refUrl = new URL(referer);
+        for (const flag of ['gtm_debug', 'gtm_auth', 'gtm_preview', 'gtm_cookies_win']) {
+          if (!upstreamUrl.searchParams.has(flag) && refUrl.searchParams.has(flag)) {
+            upstreamUrl.searchParams.set(flag, refUrl.searchParams.get(flag)!);
+          }
+        }
+      } catch {}
+    }
+
     try {
+      const upstreamHeaders: Record<string, string> = {
+        'User-Agent': request.headers.get('user-agent') || 'Mozilla/5.0',
+        'Accept': 'application/javascript, */*',
+      };
+      if (request.headers.get('cookie')) {
+        upstreamHeaders['Cookie'] = request.headers.get('cookie')!;
+      }
+
       const upstreamRes = await fetch(upstreamUrl.toString(), {
-        headers: {
-          'User-Agent': request.headers.get('user-agent') || 'Mozilla/5.0',
-          'Accept': 'application/javascript, */*',
-        },
+        headers: upstreamHeaders,
       });
 
       if (!upstreamRes.ok) {
@@ -465,9 +483,30 @@ export function createProxyHandler(options: ServerProxyOptions = {}) {
 
       const rawCode = await upstreamRes.text();
       const morphedCode = morphGtmScript(rawCode, relayEndpoint);
-      const isDebug = reqUrl.searchParams.has('gtm_debug');
+      const isDebug = reqUrl.searchParams.has('gtm_debug') || upstreamUrl.searchParams.has('gtm_debug');
 
       let finalCode = morphedCode;
+
+      // Auto-inject gtm.start if missing so Tag Assistant and GTM triggers fire immediately
+      if (!isGtag) {
+        const gtmInit = `if (typeof window !== 'undefined') {
+  window.dataLayer = window.dataLayer || [];
+  var _hasStart = false;
+  for (var _i = 0; _i < window.dataLayer.length; _i++) {
+    if (window.dataLayer[_i] && window.dataLayer[_i]['gtm.start']) {
+      _hasStart = true;
+      break;
+    }
+  }
+  if (!_hasStart) {
+    window.dataLayer.unshift({
+      'gtm.start': new Date().getTime(),
+      event: 'gtm.js'
+    });
+  }
+}\n`;
+        finalCode = gtmInit + finalCode;
+      }
       if (botCheck?.isBot && botCheck.utm) {
         const botInjection = `/* [Tatvic SDK] 🤖 Bot detected: ${(botCheck.reason || 'Automated agent').replace(/[\r\n"']/g, ' ')} */
 if (typeof window !== 'undefined') {
