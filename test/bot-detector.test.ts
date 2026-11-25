@@ -193,6 +193,7 @@ describe('Bot & LLM Agent Detection: Client-Side Interceptor', () => {
 
   beforeEach(() => {
     originalNavigator = globalThis.navigator;
+    (globalThis as any).window = globalThis as any;
   });
 
   afterEach(() => {

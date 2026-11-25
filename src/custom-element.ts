@@ -1,6 +1,7 @@
 import { initFirstPartyWrapper } from './index.js';
 import type { ProxySdkOptions } from './types.js';
 import { isClientBot } from './bot-detector.js';
+import { morphDomScripts } from './dom/script-morpher.js';
 
 /**
  * Standard Web Component: <tatvic-wrapper>
@@ -15,7 +16,6 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
   connectedCallback(): void {
     if (typeof window === 'undefined') return;
 
-    // Ensure it doesn't affect page layout or CSS grids/flex
     if (this.style) {
       this.style.display = 'contents';
     }
@@ -54,7 +54,6 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
     options.preserveQueryOnProxyUrl = preserveQuery;
     options.obfuscateTarget = obfuscateTarget;
 
-    // Check if in Tag Assistant preview / debug mode
     const isPreview =
       Boolean(serverPreview) ||
       (typeof window !== 'undefined' &&
@@ -63,9 +62,6 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
           window.location.search.includes('gtm_preview') ||
           window.location.search.includes('gtm_server_preview')));
 
-    // Client-Side Bot & Automation Detection:
-    // If running in an automated / headless browser environment (e.g. Lighthouse, Puppeteer),
-    // automatically append UTM parameters (source & medium) to dataLayer and telemetry hits without blocking the view.
     if (botDetectionEnabled && !isPreview) {
       const botCheck = isClientBot();
       if (botCheck.isBot) {
@@ -75,7 +71,6 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
           );
         }
 
-        // Push bot detection and UTM attribution to dataLayer
         try {
           if (typeof window !== 'undefined') {
             const dl = (window as any).dataLayer || [];
@@ -89,7 +84,6 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
           }
         } catch {}
 
-        // Dispatch custom event for telemetry / developer observers with auto-appended UTM attribution
         try {
           window.dispatchEvent(
             new CustomEvent('tatvic:bot-detected', {
@@ -104,105 +98,18 @@ export class TatvicWrapperElement extends (typeof HTMLElement !== 'undefined' ? 
 
     initFirstPartyWrapper(options);
 
-    // Automatically detect and morph any GTM or tracking scripts inside the wrapper
-    const morphScripts = () => {
-      try {
-        if (this.querySelectorAll && typeof document !== 'undefined') {
-          const scripts = this.querySelectorAll('script[src]');
-          scripts.forEach((s) => {
-            const src = s.getAttribute('src');
-            if (!src) return;
-
-            // 1. Detect GTM script tags and morph to first-party stealth loader with preview params
-            if (
-              !src.includes('/debug/') &&
-              !src.includes('debug/bootstrap') &&
-              !src.includes('tagassistant.google.com') &&
-              !src.includes('/taggy/') &&
-              (src.includes('googletagmanager.com/gtm.js') ||
-                src.includes('googletagmanager.com/gtag/js') ||
-                src.includes('/gtag/js') ||
-                src.includes('/_tatvic/gtm.js') ||
-                src.includes('/_tatvic/loader.js') ||
-                (src.includes('googletagmanager.com') && (src.includes('id=GTM-') || src.includes('id=G-'))))
-            ) {
-              const pageSearch = typeof window !== 'undefined' && window.location ? window.location.search : '';
-              const pageParams = new URLSearchParams(pageSearch);
-              const targetUrl = new URL(src, typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost');
-
-              const isGtag = src.includes('/gtag/js') || (targetUrl.searchParams.get('id') || '').startsWith('G-');
-              const containerId =
-                targetUrl.searchParams.get('cid') ||
-                targetUrl.searchParams.get('container') ||
-                targetUrl.searchParams.get('tag') ||
-                targetUrl.searchParams.get('id') ||
-                targetUrl.searchParams.get('_id') ||
-                (isGtag ? 'G-VVBCZC9JSW' : 'GTM-T32XGF8F');
-
-              const morphedParams = new URLSearchParams();
-              // Evade EasyPrivacy '.js?id=GTM-' and '/gtm.js' rules with stealth parameter 'cid'
-              morphedParams.set('cid', containerId);
-              if (isGtag) {
-                morphedParams.set('_type', 'gtag');
-              }
-
-              targetUrl.searchParams.forEach((v, k) => {
-                if (k !== 'id' && k !== 'cid' && k !== 'container' && k !== 'tag' && k !== '_id' && k !== '_type') {
-                  if (k === 'cx') morphedParams.set('_cx', v);
-                  else if (k === 'gtm') morphedParams.set('_gtm', v);
-                  else if (k === 'tag_exp') morphedParams.set('_tag_exp', v);
-                  else if (k === 'l' && (v === 'dataLayer' || v.includes('Layer'))) morphedParams.set('_l', v);
-                  else morphedParams.set(k, v);
-                }
-              });
-
-              // Pass through Tag Assistant preview flags (gtm_debug, gtm_auth, gtm_preview)
-              for (const param of ['gtm_debug', 'gtm_auth', 'gtm_preview', 'gtm_cookies_win']) {
-                if (pageParams.has(param) && !morphedParams.has(param)) {
-                  morphedParams.set(param, pageParams.get(param)!);
-                }
-              }
-
-              const morphedUrl = `/_tatvic/loader.js?${morphedParams.toString()}`;
-              if (s.getAttribute('src') !== morphedUrl) {
-                s.setAttribute('src', morphedUrl);
-
-                // Replace element to force first-party fetch from morphed loader
-                const replacement = document.createElement('script');
-                replacement.async = s.hasAttribute('async');
-                replacement.src = morphedUrl;
-                s.parentNode?.replaceChild(replacement, s);
-              }
-              return;
-            }
-
-            // 2. Generic tracking scripts
-            if (!src.startsWith('/_tatvic/')) {
-              const separator = (options.proxyEndpoint || '/_tatvic/relay').includes('?') ? '&' : '?';
-              const proxied = `${options.proxyEndpoint || '/_tatvic/relay'}${separator}_tgt=${encodeURIComponent(src)}`;
-              s.setAttribute('src', proxied);
-            }
-          });
-        }
-      } catch {
-        // Ignore if DOM querySelectorAll is not available
-      }
-    };
-
-    morphScripts();
+    const runMorph = () => morphDomScripts(this, options);
+    runMorph();
     if (typeof queueMicrotask !== 'undefined') {
-      queueMicrotask(morphScripts);
+      queueMicrotask(runMorph);
     } else if (typeof setTimeout !== 'undefined') {
-      setTimeout(morphScripts, 0);
+      setTimeout(runMorph, 0);
     }
   }
 }
 
-// Auto-register custom element if in browser context
 if (typeof window !== 'undefined' && typeof customElements !== 'undefined' && !customElements.get('tatvic-wrapper')) {
   try {
     customElements.define('tatvic-wrapper', TatvicWrapperElement as unknown as CustomElementConstructor);
-  } catch {
-    // In case of duplicate registration
-  }
+  } catch {}
 }
